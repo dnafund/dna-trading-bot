@@ -8,7 +8,7 @@ Automated crypto futures trading bot with multi-timeframe EMA analysis, RSI dive
 
 ## Features
 
-### 3 Entry Strategies
+### 4 Entry Strategies
 
 **Standard EMA** (M5 / M15 / H1 / H4)
 - Cascade filter: H4 trend > ADX > H1 trend > RSI > M15 trend > Wick touch EMA34/89 with rejection wick >= 40%
@@ -23,6 +23,11 @@ Automated crypto futures trading bot with multi-timeframe EMA analysis, RSI dive
 - Regular divergence detection (bullish/bearish)
 - Auto-closes opposing positions on same symbol
 - 1.5x leverage boost, EMA34 dynamic TP cap
+
+**Supply/Demand Zones** (M15 / H1 / H4)
+- BigBeluga-exact SD zone detection algorithm (PineScript-matching)
+- Zone strength scoring with delta % and volume analysis
+- Blocks conflicting entries when price is inside opposing zone
 
 ### Risk Management
 
@@ -43,7 +48,7 @@ Automated crypto futures trading bot with multi-timeframe EMA analysis, RSI dive
 ### Backtest Engine
 
 - Full strategy simulation matching live bot logic
-- All 3 entry types (Standard, EMA610, RSI Divergence)
+- All 4 entry types (Standard, EMA610, RSI Divergence, SD Zones)
 - Chandelier Exit with proper fallback chains
 - Equity curve, trade-by-trade breakdown, exit stats
 
