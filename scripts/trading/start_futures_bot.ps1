@@ -25,7 +25,7 @@ Write-Host "[INFO] Project: $ProjectRoot" -ForegroundColor Cyan
 # Check if src/trading/futures exists
 if (-not (Test-Path "src\trading\futures")) {
     Write-Host "[ERROR] src\trading\futures not found!" -ForegroundColor Red
-    Write-Host "        Make sure you are in the My-Life-OS directory" -ForegroundColor Yellow
+    Write-Host "        Make sure you are in the DNA-Trading-Bot directory" -ForegroundColor Yellow
     exit 1
 }
 

@@ -14,7 +14,7 @@ echo ""
 
 # Check if in correct directory
 if [ ! -d "src/trading/futures" ]; then
-    echo -e "${RED}Error: Must run from My-Life-OS root directory${NC}"
+    echo -e "${RED}Error: Must run from DNA-Trading-Bot root directory${NC}"
     exit 1
 fi
 

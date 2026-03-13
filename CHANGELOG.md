@@ -750,7 +750,7 @@ Close: 📉 Chandelier Exit (H1)
 
 ### Imported Everything Claude Code Repository
 
-**What:** Clone toàn bộ [everything-claude-code](https://github.com/affaan-m/everything-claude-code) vào project My-Life-OS.
+**What:** Clone toàn bộ [everything-claude-code](https://github.com/affaan-m/everything-claude-code) vào project DNA-Trading-Bot.
 
 **Source:** Anthropic Hackathon Winner's production-ready Claude Code configs (10+ months battle-tested)
 
@@ -789,7 +789,7 @@ Close: 📉 Chandelier Exit (H1)
 - **Rules to merge:**
   - Review `rules/` and integrate into `knowledge/rules/DEVELOPER_RULES.md`
 
-**Location:** `C:\Claude Work\My-Life-OS\claude-code-configs\`
+**Location:** `C:\Claude Work\DNA-Trading-Bot\claude-code-configs\`
 
 **Next Steps:**
 1. Read `the-shortform-guide.md` cho quick start
@@ -1480,7 +1480,7 @@ pytest tests/test_futures_trading.py -v
 4. Gradually transition to live trading
 5. Add more symbols as confidence grows
 
-#### Integration with My-Life-OS
+#### Integration with DNA-Trading-Bot
 
 - Uses existing Linear API client
 - Logs to `logs/futures_bot.log`
@@ -1507,8 +1507,8 @@ Created comprehensive START.md file (18KB, ~700 lines) to provide complete conte
 #### Content Sections
 
 1. **System Overview** (50 lines)
-   - What is My-Life-OS
-   - Key projects (My-Life-OS + quant-factory)
+   - What is DNA-Trading-Bot
+   - Key projects (DNA-Trading-Bot + quant-factory)
    - Team structure (admin, Antigravity, Claude)
    - Current focus (Trading signal automation)
 

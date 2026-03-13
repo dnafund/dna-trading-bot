@@ -1,12 +1,12 @@
 # ============================================
-# My-Life-OS Backend Launcher (PowerShell)
+# DNA-Trading-Bot Backend Launcher (PowerShell)
 # ============================================
 
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
 Write-Host "================================" -ForegroundColor Green
-Write-Host "  My-Life-OS Backend API" -ForegroundColor Green
+Write-Host "  DNA-Trading-Bot Backend API" -ForegroundColor Green
 Write-Host "================================" -ForegroundColor Green
 Write-Host ""
 

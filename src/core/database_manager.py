@@ -179,14 +179,14 @@ class MultiTimeframeData(Base):
 
 class DatabaseManager:
     """
-    Manage all database operations for My-Life-OS V3
+    Manage all database operations for DNA-Trading-Bot
 
     Supports:
     - SQLite (local development)
     - PostgreSQL (production)
     """
 
-    def __init__(self, db_url: str = 'sqlite:///database/my_life_os.db'):
+    def __init__(self, db_url: str = 'sqlite:///database/trading_bot.db'):
         """
         Initialize database manager
 
@@ -476,7 +476,7 @@ if __name__ == '__main__':
     print()
 
     # Initialize
-    db = DatabaseManager('sqlite:///database/my_life_os_test.db')
+    db = DatabaseManager('sqlite:///database/trading_bot_test.db')
 
     # Store trading signal
     signal_id = db.store_trading_signal(

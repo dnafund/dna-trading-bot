@@ -36,7 +36,7 @@ echo %CYAN%Project: %CD%%NC%
 REM Check if src/trading/futures exists
 if not exist "src\trading\futures" (
     echo %RED%Error: src\trading\futures not found!%NC%
-    echo Make sure you're in the My-Life-OS directory
+    echo Make sure you're in the DNA-Trading-Bot directory
     exit /b 1
 )
 

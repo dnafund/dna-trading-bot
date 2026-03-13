@@ -53,7 +53,7 @@ SL: Auto close at -50% PNL
 ### 1. Install Dependencies
 
 ```bash
-cd /path/to/My-Life-OS
+cd /path/to/dna-trading-bot
 pip install -r requirements.txt
 ```
 
@@ -165,7 +165,7 @@ DEFAULT_SYMBOLS = [
 ### Example 1: Start Paper Trading
 
 ```bash
-cd /path/to/My-Life-OS
+cd /path/to/dna-trading-bot
 ./scripts/trading/start_futures_bot.sh paper
 ```
 
@@ -244,7 +244,7 @@ Linear issues are created automatically:
 ### Test Individual Modules
 
 ```bash
-cd /path/to/My-Life-OS
+cd /path/to/dna-trading-bot
 
 # Test indicators
 python3 -c "from src.trading.futures.indicators import TechnicalIndicators; print('OK')"
@@ -329,7 +329,7 @@ When position closes:
 **Solution**: Run on local machine, not Claude sandbox
 ```bash
 # On your local Terminal
-cd ~/Documents/Claude\ Work/My-Life-OS
+cd ~/Documents/Claude\ Work/DNA-Trading-Bot
 ./scripts/trading/start_futures_bot.sh paper
 ```
 
