@@ -1,0 +1,370 @@
+//@version=6
+indicator("S/R Zones MTF", overlay=true, max_boxes_count=500)
+
+// Inputs
+grpSR    = "S/R Detection"
+lookback = input.int(500, "Lookback", minval=50, maxval=2000, group=grpSR)
+swingWin = input.int(3, "Swing Window", minval=2, maxval=10, group=grpSR)
+mergePct = input.float(0.3, "Cluster Merge %", minval=0.1, maxval=5.0, step=0.1, group=grpSR) / 100
+minTouch = input.int(2, "Min Touches", minval=1, maxval=10, group=grpSR)
+maxZones = input.int(3, "Max Zones/Side", minval=1, maxval=10, group=grpSR)
+
+grpMTF   = "Multi-Timeframe"
+useTF1   = input.bool(true, "Current TF", group=grpMTF)
+useTF2   = input.bool(true, "HTF 1", group=grpMTF, inline="t2")
+tf2      = input.timeframe("60", "", group=grpMTF, inline="t2")
+useTF3   = input.bool(true, "HTF 2", group=grpMTF, inline="t3")
+tf3      = input.timeframe("240", "", group=grpMTF, inline="t3")
+useTF4   = input.bool(false, "HTF 3", group=grpMTF, inline="t4")
+tf4      = input.timeframe("D", "", group=grpMTF, inline="t4")
+
+grpCol   = "Style"
+colRes   = input.color(color.new(#ffffff, 75), "Resistance", group=grpCol)
+colSup   = input.color(color.new(#ffffff, 75), "Support", group=grpCol)
+borderOn = input.bool(true, "Show Border", group=grpCol)
+
+// ============ DATA STRUCTURES ============
+// Each swing stores: price, wick_top, wick_bot (for zone height)
+// Resistance swing: wick_top=high, wick_bot=max(open,close) -> zone = body top to wick tip
+// Support swing: wick_top=min(open,close), wick_bot=low -> zone = wick bottom to body bottom
+
+// Collect OHLC into arrays each bar
+var float[] curH = array.new_float()
+var float[] curL = array.new_float()
+var float[] curO = array.new_float()
+var float[] curC = array.new_float()
+
+if array.size(curH) >= lookback
+    array.shift(curH)
+    array.shift(curL)
+    array.shift(curO)
+    array.shift(curC)
+array.push(curH, high)
+array.push(curL, low)
+array.push(curO, open)
+array.push(curC, close)
+
+// HTF data
+tf2H_ = request.security(syminfo.tickerid, tf2, high)
+tf2L_ = request.security(syminfo.tickerid, tf2, low)
+tf2O_ = request.security(syminfo.tickerid, tf2, open)
+tf2C_ = request.security(syminfo.tickerid, tf2, close)
+tf3H_ = request.security(syminfo.tickerid, tf3, high)
+tf3L_ = request.security(syminfo.tickerid, tf3, low)
+tf3O_ = request.security(syminfo.tickerid, tf3, open)
+tf3C_ = request.security(syminfo.tickerid, tf3, close)
+tf4H_ = request.security(syminfo.tickerid, tf4, high)
+tf4L_ = request.security(syminfo.tickerid, tf4, low)
+tf4O_ = request.security(syminfo.tickerid, tf4, open)
+tf4C_ = request.security(syminfo.tickerid, tf4, close)
+
+var float[] t2H = array.new_float()
+var float[] t2L = array.new_float()
+var float[] t2O = array.new_float()
+var float[] t2C = array.new_float()
+var float[] t3H = array.new_float()
+var float[] t3L = array.new_float()
+var float[] t3O = array.new_float()
+var float[] t3C = array.new_float()
+var float[] t4H = array.new_float()
+var float[] t4L = array.new_float()
+var float[] t4O = array.new_float()
+var float[] t4C = array.new_float()
+
+if array.size(t2H) >= lookback
+    array.shift(t2H)
+    array.shift(t2L)
+    array.shift(t2O)
+    array.shift(t2C)
+array.push(t2H, tf2H_)
+array.push(t2L, tf2L_)
+array.push(t2O, tf2O_)
+array.push(t2C, tf2C_)
+
+if array.size(t3H) >= lookback
+    array.shift(t3H)
+    array.shift(t3L)
+    array.shift(t3O)
+    array.shift(t3C)
+array.push(t3H, tf3H_)
+array.push(t3L, tf3L_)
+array.push(t3O, tf3O_)
+array.push(t3C, tf3C_)
+
+if array.size(t4H) >= lookback
+    array.shift(t4H)
+    array.shift(t4L)
+    array.shift(t4O)
+    array.shift(t4C)
+array.push(t4H, tf4H_)
+array.push(t4L, tf4L_)
+array.push(t4O, tf4O_)
+array.push(t4C, tf4C_)
+
+// ============ FUNCTIONS ============
+// Find resistance zones: swing highs with wick range
+// Returns [zone_center, zone_top, zone_bot] arrays
+findResZones(float[] hArr, float[] lArr, float[] oArr, float[] cArr, int win, int lb) =>
+    centers = array.new_float()
+    tops = array.new_float()
+    bots = array.new_float()
+    n = math.min(lb, array.size(hArr))
+    if n > win * 2
+        for i = win to n - 1 - win
+            h = array.get(hArr, i)
+            isSwing = true
+            for j = 1 to win
+                if h <= array.get(hArr, i - j) or h <= array.get(hArr, i + j)
+                    isSwing := false
+                    break
+            if isSwing
+                wickTop = h
+                bodyTop = math.max(array.get(oArr, i), array.get(cArr, i))
+                array.push(centers, h)
+                array.push(tops, wickTop)
+                array.push(bots, bodyTop)
+    [centers, tops, bots]
+
+findSupZones(float[] hArr, float[] lArr, float[] oArr, float[] cArr, int win, int lb) =>
+    centers = array.new_float()
+    tops = array.new_float()
+    bots = array.new_float()
+    n = math.min(lb, array.size(lArr))
+    if n > win * 2
+        for i = win to n - 1 - win
+            l = array.get(lArr, i)
+            isSwing = true
+            for j = 1 to win
+                if l >= array.get(lArr, i - j) or l >= array.get(lArr, i + j)
+                    isSwing := false
+                    break
+            if isSwing
+                wickBot = l
+                bodyBot = math.min(array.get(oArr, i), array.get(cArr, i))
+                array.push(centers, l)
+                array.push(tops, bodyBot)
+                array.push(bots, wickBot)
+    [centers, tops, bots]
+
+// Cluster zones: merge nearby, zone = widest wick range in cluster
+clusterZones(float[] centers, float[] tops, float[] bots) =>
+    zTop = array.new_float()
+    zBot = array.new_float()
+    zCnt = array.new_int()
+    if array.size(centers) > 0
+        idx = array.new_int()
+        for i = 0 to array.size(centers) - 1
+            array.push(idx, i)
+        // Sort by center price
+        if array.size(idx) > 1
+            for i = 0 to array.size(idx) - 2
+                mI = i
+                for j = i + 1 to array.size(idx) - 1
+                    if array.get(centers, array.get(idx, j)) < array.get(centers, array.get(idx, mI))
+                        mI := j
+                if mI != i
+                    tmp = array.get(idx, i)
+                    array.set(idx, i, array.get(idx, mI))
+                    array.set(idx, mI, tmp)
+
+        // Build clusters
+        fi = array.get(idx, 0)
+        cSum = array.get(centers, fi)
+        cCnt = 1
+        cTop = array.get(tops, fi)
+        cBot = array.get(bots, fi)
+        if array.size(idx) > 1
+            for i = 1 to array.size(idx) - 1
+                ci = array.get(idx, i)
+                p = array.get(centers, ci)
+                avg = cSum / cCnt
+                if math.abs(p - avg) / avg <= mergePct
+                    cSum += p
+                    cCnt += 1
+                    cTop := math.max(cTop, array.get(tops, ci))
+                    cBot := math.min(cBot, array.get(bots, ci))
+                else
+                    array.push(zTop, cTop)
+                    array.push(zBot, cBot)
+                    array.push(zCnt, cCnt)
+                    cSum := p
+                    cCnt := 1
+                    cTop := array.get(tops, ci)
+                    cBot := array.get(bots, ci)
+        array.push(zTop, cTop)
+        array.push(zBot, cBot)
+        array.push(zCnt, cCnt)
+    [zTop, zBot, zCnt]
+
+// Draw zones
+drawSR(float[] zTop, float[] zBot, int[] zCnt, float curP, bool isRes, color col, int maxZ) =>
+    drawn = 0
+    // Filter: res above price, sup below price
+    vTop = array.new_float()
+    vBot = array.new_float()
+    vCnt = array.new_int()
+    if array.size(zTop) > 0
+        for i = 0 to array.size(zTop) - 1
+            mid = (array.get(zTop, i) + array.get(zBot, i)) / 2
+            ok = isRes ? mid > curP : mid < curP
+            if ok
+                array.push(vTop, array.get(zTop, i))
+                array.push(vBot, array.get(zBot, i))
+                array.push(vCnt, array.get(zCnt, i))
+
+    // Sort by strength (most touches first), then proximity as tiebreaker
+    if array.size(vTop) > 1
+        for i = 0 to array.size(vTop) - 2
+            mI = i
+            for j = i + 1 to array.size(vTop) - 1
+                cJ = array.get(vCnt, j)
+                cM = array.get(vCnt, mI)
+                // Primary: more touches = stronger
+                // Tiebreak: closer to price
+                better = cJ > cM
+                if cJ == cM
+                    midJ = (array.get(vTop, j) + array.get(vBot, j)) / 2
+                    midM = (array.get(vTop, mI) + array.get(vBot, mI)) / 2
+                    better := isRes ? midJ < midM : midJ > midM
+                if better
+                    mI := j
+            if mI != i
+                tT = array.get(vTop, i)
+                tB = array.get(vBot, i)
+                tC = array.get(vCnt, i)
+                array.set(vTop, i, array.get(vTop, mI))
+                array.set(vBot, i, array.get(vBot, mI))
+                array.set(vCnt, i, array.get(vCnt, mI))
+                array.set(vTop, mI, tT)
+                array.set(vBot, mI, tB)
+                array.set(vCnt, mI, tC)
+
+    if array.size(vTop) > 0
+        for i = 0 to math.min(array.size(vTop) - 1, maxZ - 1)
+            t = array.get(vTop, i)
+            b = array.get(vBot, i)
+            c = array.get(vCnt, i)
+            strong = c >= minTouch
+            bw = borderOn ? (strong ? 2 : 1) : 0
+            bc = borderOn ? color.new(#808080, 50) : na
+            box.new(bar_index - 300, t, bar_index + 80, b, border_color=bc, border_width=bw, bgcolor=col)
+            drawn += 1
+    drawn
+
+// Merge overlapping zones into one
+mergeOverlap(float[] zT, float[] zB, int[] zC) =>
+    mT = array.new_float()
+    mB = array.new_float()
+    mC = array.new_int()
+    if array.size(zT) > 0
+        // Sort by midpoint ascending
+        if array.size(zT) > 1
+            for i = 0 to array.size(zT) - 2
+                mI = i
+                for j = i + 1 to array.size(zT) - 1
+                    midJ = (array.get(zT, j) + array.get(zB, j)) / 2
+                    midM = (array.get(zT, mI) + array.get(zB, mI)) / 2
+                    if midJ < midM
+                        mI := j
+                if mI != i
+                    tA = array.get(zT, i)
+                    tBB = array.get(zB, i)
+                    tCC = array.get(zC, i)
+                    array.set(zT, i, array.get(zT, mI))
+                    array.set(zB, i, array.get(zB, mI))
+                    array.set(zC, i, array.get(zC, mI))
+                    array.set(zT, mI, tA)
+                    array.set(zB, mI, tBB)
+                    array.set(zC, mI, tCC)
+
+        // Merge overlapping: if zone[i+1].bot <= zone[i].top -> merge
+        cT = array.get(zT, 0)
+        cB = array.get(zB, 0)
+        cC = array.get(zC, 0)
+        if array.size(zT) > 1
+            for i = 1 to array.size(zT) - 1
+                nextT = array.get(zT, i)
+                nextB = array.get(zB, i)
+                nextC = array.get(zC, i)
+                mid1 = (cT + cB) / 2
+                mid2 = (nextT + nextB) / 2
+                // Overlap or within merge% of each other
+                overlap = nextB <= cT or (mid1 > 0 ? math.abs(mid2 - mid1) / mid1 <= mergePct : false)
+                if overlap
+                    cT := math.max(cT, nextT)
+                    cB := math.min(cB, nextB)
+                    cC += nextC
+                else
+                    array.push(mT, cT)
+                    array.push(mB, cB)
+                    array.push(mC, cC)
+                    cT := nextT
+                    cB := nextB
+                    cC := nextC
+        array.push(mT, cT)
+        array.push(mB, cB)
+        array.push(mC, cC)
+    [mT, mB, mC]
+
+// Helper: append arrays
+appendZones(float[] dstT, float[] dstB, int[] dstC, float[] srcT, float[] srcB, int[] srcC) =>
+    if array.size(srcT) > 0
+        for i = 0 to array.size(srcT) - 1
+            array.push(dstT, array.get(srcT, i))
+            array.push(dstB, array.get(srcB, i))
+            array.push(dstC, array.get(srcC, i))
+
+// ============ MAIN ============
+if barstate.islast
+    curP = close
+
+    // Collect ALL zones from all TFs into single arrays
+    allRT = array.new_float()
+    allRB = array.new_float()
+    allRC = array.new_int()
+    allST = array.new_float()
+    allSB = array.new_float()
+    allSC = array.new_int()
+
+    if useTF1
+        [rc1, rt1, rb1] = findResZones(curH, curL, curO, curC, swingWin, lookback)
+        [rT1, rB1, rN1] = clusterZones(rc1, rt1, rb1)
+        appendZones(allRT, allRB, allRC, rT1, rB1, rN1)
+        [sc1, st1, sb1] = findSupZones(curH, curL, curO, curC, swingWin, lookback)
+        [sT1, sB1, sN1] = clusterZones(sc1, st1, sb1)
+        appendZones(allST, allSB, allSC, sT1, sB1, sN1)
+
+    if useTF2
+        [rc2, rt2, rb2] = findResZones(t2H, t2L, t2O, t2C, swingWin, lookback)
+        [rT2, rB2, rN2] = clusterZones(rc2, rt2, rb2)
+        appendZones(allRT, allRB, allRC, rT2, rB2, rN2)
+        [sc2, st2, sb2] = findSupZones(t2H, t2L, t2O, t2C, swingWin, lookback)
+        [sT2, sB2, sN2] = clusterZones(sc2, st2, sb2)
+        appendZones(allST, allSB, allSC, sT2, sB2, sN2)
+
+    if useTF3
+        [rc3, rt3, rb3] = findResZones(t3H, t3L, t3O, t3C, swingWin, lookback)
+        [rT3, rB3, rN3] = clusterZones(rc3, rt3, rb3)
+        appendZones(allRT, allRB, allRC, rT3, rB3, rN3)
+        [sc3, st3, sb3] = findSupZones(t3H, t3L, t3O, t3C, swingWin, lookback)
+        [sT3, sB3, sN3] = clusterZones(sc3, st3, sb3)
+        appendZones(allST, allSB, allSC, sT3, sB3, sN3)
+
+    if useTF4
+        [rc4, rt4, rb4] = findResZones(t4H, t4L, t4O, t4C, swingWin, lookback)
+        [rT4, rB4, rN4] = clusterZones(rc4, rt4, rb4)
+        appendZones(allRT, allRB, allRC, rT4, rB4, rN4)
+        [sc4, st4, sb4] = findSupZones(t4H, t4L, t4O, t4C, swingWin, lookback)
+        [sT4, sB4, sN4] = clusterZones(sc4, st4, sb4)
+        appendZones(allST, allSB, allSC, sT4, sB4, sN4)
+
+    // Cross-TF merge: combine overlapping zones
+    [fRT, fRB, fRC] = mergeOverlap(allRT, allRB, allRC)
+    [fST, fSB, fSC] = mergeOverlap(allST, allSB, allSC)
+
+    // Draw final merged zones
+    totalR = drawSR(fRT, fRB, fRC, curP, true, colRes, maxZones)
+    totalS = drawSR(fST, fSB, fSC, curP, false, colSup, maxZones)
+
+    var table info = table.new(position.top_right, 1, 1, bgcolor=color.new(color.black, 80))
+    table.cell(info, 0, 0, str.tostring(totalR) + "R | " + str.tostring(totalS) + "S", text_color=color.white, text_size=size.small)

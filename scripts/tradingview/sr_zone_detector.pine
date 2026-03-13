@@ -1,0 +1,281 @@
+// ============================================================================
+// S/R Zone Detector v1.3
+//
+// Algorithm: Swing High/Low Detection → Clustering → Zone Merging → Scoring
+// 1. Detect pivot highs/lows (fractals with configurable lookback)
+// 2. Cluster nearby pivots into zones (percentage-based tolerance)
+// 3. Cap max zone width to prevent mega-zones
+// 4. Post-process: merge overlapping zones (minimum separation enforcement)
+// 5. Balanced display: reserve slots for both support AND resistance
+// 6. Display top N strongest zones as colored boxes
+//
+// v1.3: balanced R/S display, 3% min separation, no proximity stripes
+// ============================================================================
+
+//@version=5
+indicator("S/R Zone Detector v1.3", overlay=true, max_boxes_count=500, max_labels_count=100)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var GRP_DET = "Detection"
+pivotLen     = input.int(8, "Pivot Lookback", minval=2, maxval=50, group=GRP_DET,
+     tooltip="Bars left/right to confirm a swing high/low. Higher = fewer but stronger levels")
+clusterPct   = input.float(0.6, "Cluster Tolerance (%)", minval=0.1, maxval=5.0, step=0.1, group=GRP_DET,
+     tooltip="Pivots within this % of each other merge into one zone")
+maxZoneWidth = input.float(1.5, "Max Zone Width (%)", minval=0.3, maxval=10.0, step=0.1, group=GRP_DET,
+     tooltip="Zone stops merging if it would exceed this width")
+minSepPct    = input.float(3.0, "Min Zone Separation (%)", minval=0.5, maxval=15.0, step=0.5, group=GRP_DET,
+     tooltip="Zones closer than this % get merged into one. Prevents stacking")
+
+var GRP_FLT = "Filter"
+minTouches  = input.int(2, "Min Touches to Show", minval=1, maxval=10, group=GRP_FLT)
+maxZones    = input.int(6, "Max Zones Displayed", minval=1, maxval=20, group=GRP_FLT)
+pruneBars   = input.int(500, "Prune Single-Touch After (bars)", minval=100, maxval=2000, group=GRP_FLT)
+maxAgeBars  = input.int(2000, "Max Zone Age (bars)", minval=200, maxval=5000, group=GRP_FLT,
+     tooltip="Remove ALL zones older than this, regardless of touches")
+
+var GRP_DSP = "Display"
+extendBars  = input.int(50, "Extend Right (bars)", minval=0, maxval=500, group=GRP_DSP)
+showLabels  = input.bool(true, "Show Zone Labels", group=GRP_DSP)
+showPivots  = input.bool(false, "Show Swing Points", group=GRP_DSP)
+boxFromFirst= input.bool(false, "Box From First Touch", group=GRP_DSP)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ZONE STORAGE (persistent arrays)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var float[] zMid   = array.new_float()
+var float[] zTop   = array.new_float()
+var float[] zBot   = array.new_float()
+var int[]   zCnt   = array.new_int()
+var int[]   zFirst = array.new_int()
+var int[]   zLast  = array.new_int()
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low, pivotLen, pivotLen)
+
+plotshape(showPivots ? ph : na, "Swing High", shape.triangledown, location.abovebar,
+     color.new(color.red, 30), offset=-pivotLen, size=size.tiny)
+plotshape(showPivots ? pl : na, "Swing Low", shape.triangleup, location.belowbar,
+     color.new(color.green, 30), offset=-pivotLen, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CLUSTERING: Merge pivot into existing zone or create new
+// ═══════════════════════════════════════════════════════════════════════════════
+
+addPivotToZone(float lvl) =>
+    _result = false
+    if not na(lvl)
+        int pivotBar = bar_index - pivotLen
+        bool merged  = false
+        int sz       = array.size(zMid)
+        float pivotTol  = lvl * clusterPct / 100.0
+        float pivotMaxW = lvl * maxZoneWidth / 100.0
+
+        int   bestIdx  = -1
+        float bestDist = 1e18
+
+        if sz > 0
+            for i = 0 to sz - 1
+                float mid  = array.get(zMid, i)
+                float dist = math.abs(mid - lvl)
+                if dist <= pivotTol and dist < bestDist
+                    float newTop = math.max(array.get(zTop, i), lvl)
+                    float newBot = math.min(array.get(zBot, i), lvl)
+                    if (newTop - newBot) <= pivotMaxW
+                        bestIdx  := i
+                        bestDist := dist
+
+        if bestIdx >= 0
+            float newTop = math.max(array.get(zTop, bestIdx), lvl)
+            float newBot = math.min(array.get(zBot, bestIdx), lvl)
+            array.set(zCnt,  bestIdx, array.get(zCnt, bestIdx) + 1)
+            array.set(zLast, bestIdx, pivotBar)
+            array.set(zTop,  bestIdx, newTop)
+            array.set(zBot,  bestIdx, newBot)
+            array.set(zMid,  bestIdx, (newTop + newBot) / 2.0)
+            merged  := true
+            _result := true
+
+        if not merged
+            float halfW = lvl * clusterPct / 200.0 * 0.3
+            array.push(zMid,   lvl)
+            array.push(zTop,   lvl + halfW)
+            array.push(zBot,   lvl - halfW)
+            array.push(zCnt,   1)
+            array.push(zFirst, pivotBar)
+            array.push(zLast,  pivotBar)
+            _result := true
+    _result
+
+addPivotToZone(ph)
+addPivotToZone(pl)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PRUNE old/weak zones (every 50 bars)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if bar_index % 50 == 0
+    int sz = array.size(zMid)
+    if sz > 0
+        for i = sz - 1 to 0
+            int age = bar_index - array.get(zLast, i)
+            if age > maxAgeBars or (age > pruneBars and array.get(zCnt, i) <= 1)
+                array.remove(zMid, i), array.remove(zTop, i), array.remove(zBot, i)
+                array.remove(zCnt, i), array.remove(zFirst, i), array.remove(zLast, i)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POST-PROCESS: Merge close zones (every 50 bars)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if bar_index % 50 == 0
+    bool didMerge = true
+    for _pass = 0 to 4
+        if not didMerge
+            break
+        didMerge := false
+        int sz = array.size(zMid)
+        if sz > 1
+            for i = sz - 1 to 1
+                if not didMerge
+                    for j = i - 1 to 0
+                        if not didMerge
+                            float midI = array.get(zMid, i)
+                            float midJ = array.get(zMid, j)
+                            float sepPct = math.abs(midI - midJ) / ((midI + midJ) / 2.0) * 100.0
+                            if sepPct < minSepPct
+                                array.set(zTop, j, math.max(array.get(zTop, i), array.get(zTop, j)))
+                                array.set(zBot, j, math.min(array.get(zBot, i), array.get(zBot, j)))
+                                array.set(zMid, j, (array.get(zTop, j) + array.get(zBot, j)) / 2.0)
+                                array.set(zCnt, j, array.get(zCnt, i) + array.get(zCnt, j))
+                                array.set(zFirst, j, math.min(array.get(zFirst, i), array.get(zFirst, j)))
+                                array.set(zLast, j, math.max(array.get(zLast, i), array.get(zLast, j)))
+                                array.remove(zMid, i), array.remove(zTop, i), array.remove(zBot, i)
+                                array.remove(zCnt, i), array.remove(zFirst, i), array.remove(zLast, i)
+                                didMerge := true
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DRAW ZONES — Balanced R/S (only on last bar)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+drawZone(int idx) =>
+    float top  = array.get(zTop, idx)
+    float bot  = array.get(zBot, idx)
+    float mid  = array.get(zMid, idx)
+    int   fb   = array.get(zFirst, idx)
+    int   lb   = array.get(zLast, idx)
+    int   tc   = array.get(zCnt, idx)
+
+    float minW = mid * 0.0015
+    if (top - bot) < minW
+        top := mid + minW / 2
+        bot := mid - minW / 2
+
+    bool isRes   = mid > close
+    int alpha    = math.max(80 - tc * 5, 15)
+    int brAlpha  = math.max(alpha - 30, 0)
+    color bgC    = isRes ? color.new(color.red, alpha)   : color.new(color.green, alpha)
+    color brC    = isRes ? color.new(color.red, brAlpha)  : color.new(color.green, brAlpha)
+    int startBar = boxFromFirst ? fb : lb
+    int endBar   = bar_index + extendBars
+
+    box.new(startBar, top, endBar, bot, bgcolor=bgC, border_color=brC, border_width=1)
+
+    if showLabels
+        string sType = isRes ? "R" : "S"
+        string txt   = sType + " x" + str.tostring(tc) + "  " + str.tostring(mid, format.mintick)
+        color  txtC  = isRes ? color.red : color.green
+        label.new(endBar + 3, mid, txt, style=label.style_label_left,
+             color=color.new(color.black, 70), textcolor=txtC, size=size.small)
+
+if barstate.islast
+    // Clear previous drawings
+    for i = array.size(box.all) - 1 to 0
+        box.delete(array.get(box.all, i))
+    for i = array.size(label.all) - 1 to 0
+        label.delete(array.get(label.all, i))
+
+    int sz = array.size(zMid)
+    if sz > 0
+        // Score all zones
+        float[] scores = array.new_float(sz, 0.0)
+        for i = 0 to sz - 1
+            int   tc      = array.get(zCnt, i)
+            int   barsAgo = bar_index - array.get(zLast, i)
+            float recency = 1.0 / (1.0 + barsAgo / 300.0)
+            array.set(scores, i, tc >= minTouches ? tc * (1.0 + recency * 0.3) : -1.0)
+
+        // Mark which zones to draw (bool array)
+        bool[] toDraw = array.new_bool(sz, false)
+        int halfSlots = math.max(maxZones / 2, 1)
+
+        // Pass 1: Pick top resistance (above price)
+        int pickedR = 0
+        float[] rScores = array.copy(scores)
+        for _r = 0 to sz - 1
+            if pickedR >= halfSlots
+                break
+            int bestI = -1
+            float bestS = -1.0
+            for i = 0 to sz - 1
+                if array.get(rScores, i) > bestS and array.get(zMid, i) > close
+                    bestS := array.get(rScores, i)
+                    bestI := i
+            if bestI < 0
+                break
+            array.set(toDraw, bestI, true)
+            array.set(rScores, bestI, -1.0)
+            pickedR += 1
+
+        // Pass 2: Pick top support (below/at price)
+        int pickedS = 0
+        float[] sScores = array.copy(scores)
+        for _s = 0 to sz - 1
+            if pickedS >= halfSlots
+                break
+            int bestI = -1
+            float bestS = -1.0
+            for i = 0 to sz - 1
+                if array.get(sScores, i) > bestS and array.get(zMid, i) <= close and not array.get(toDraw, i)
+                    bestS := array.get(sScores, i)
+                    bestI := i
+            if bestI < 0
+                break
+            array.set(toDraw, bestI, true)
+            array.set(sScores, bestI, -1.0)
+            pickedS += 1
+
+        // Pass 3: Fill remaining with best unused
+        int picked = pickedR + pickedS
+        if picked < maxZones
+            for _f = 0 to sz - 1
+                if picked >= maxZones
+                    break
+                int bestI = -1
+                float bestS = -1.0
+                for i = 0 to sz - 1
+                    if array.get(scores, i) > bestS and not array.get(toDraw, i)
+                        bestS := array.get(scores, i)
+                        bestI := i
+                if bestI < 0
+                    break
+                array.set(toDraw, bestI, true)
+                picked += 1
+
+        // Draw all selected zones
+        for i = 0 to sz - 1
+            if array.get(toDraw, i)
+                drawZone(i)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+alertcondition(false, "Price Near Support",    "Price approaching support zone")
+alertcondition(false, "Price Near Resistance", "Price approaching resistance zone")

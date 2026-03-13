@@ -1,0 +1,1147 @@
+//@version=6
+// ══════════════════════════════════════════════════════════════════════════════
+// EMA Trading Bot V7.5 — Full Strategy Replica
+// Replicates all 15 entry types from the live bot (works on any chart TF)
+// Entry types: Standard M5/M15/H1/H4, EMA610 H1/H4, RSI Div M15/H1/H4, SD Zone M15/H1/H4
+// ══════════════════════════════════════════════════════════════════════════════
+strategy("EMA Bot V7.5", overlay=true, pyramiding=12,
+     default_qty_type=strategy.cash, default_qty_value=500,
+     initial_capital=10000, currency=currency.USD,
+     commission_type=strategy.commission.percent, commission_value=0.02,
+     slippage=1, calc_on_every_tick=false, process_orders_on_close=true,
+     max_bars_back=5000)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 1: INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+// ── General ──
+grGen = "⚙️ General"
+i_leverage   = input.int(5, "Leverage", minval=1, maxval=125, group=grGen)
+i_margin     = input.float(50, "Margin per Trade ($)", group=grGen)
+
+// ── Standard Entry ──
+grStd = "📊 Standard Entry"
+i_std_m5     = input.bool(true, "Enable M5", group=grStd)
+i_std_m15    = input.bool(true, "Enable M15", group=grStd)
+i_std_h1     = input.bool(true, "Enable H1", group=grStd)
+i_std_h4     = input.bool(true, "Enable H4", group=grStd)
+i_wick_pct   = input.int(40, "Rejection Wick %", minval=10, maxval=80, group=grStd)
+i_tol_m5     = input.float(0.2, "M5 Tolerance %", group=grStd) / 100
+i_tol_m15    = input.float(0.2, "M15 Tolerance %", group=grStd) / 100
+i_tol_h1     = input.float(0.3, "H1 Tolerance %", group=grStd) / 100
+i_tol_h4     = input.float(0.5, "H4 Tolerance %", group=grStd) / 100
+
+// ── Standard Exit per TF ──
+grStdX = "📊 Standard Exit"
+i_std_m5_tp1  = input.float(20, "M5/M15 TP1 ROI%", group=grStdX)
+i_std_m5_tp2  = input.float(40, "M5/M15 TP2 ROI%", group=grStdX)
+i_std_m5_sl   = input.float(20, "M5/M15 Hard SL%", group=grStdX)
+i_std_h1_tp1  = input.float(30, "H1 TP1 ROI%", group=grStdX)
+i_std_h1_tp2  = input.float(60, "H1 TP2 ROI%", group=grStdX)
+i_std_h1_sl   = input.float(25, "H1 Hard SL%", group=grStdX)
+i_std_h4_tp1  = input.float(50, "H4 TP1 ROI%", group=grStdX)
+i_std_h4_tp2  = input.float(100, "H4 TP2 ROI%", group=grStdX)
+i_std_h4_sl   = input.float(40, "H4 Hard SL%", group=grStdX)
+
+// ── EMA610 Entry ──
+grE610 = "🔵 EMA610 Entry"
+i_e610_h1    = input.bool(true, "Enable EMA610 H1", group=grE610)
+i_e610_h4    = input.bool(true, "Enable EMA610 H4", group=grE610)
+i_e610_tol   = input.float(0.5, "Touch Tolerance %", group=grE610) / 100
+i_e610_dist  = input.float(4.0, "Max Distance %", group=grE610) / 100
+i_e610_h1_tp1 = input.float(40, "H1 TP1 ROI%", group=grE610)
+i_e610_h1_tp2 = input.float(80, "H1 TP2 ROI%", group=grE610)
+i_e610_h1_sl  = input.float(30, "H1 Hard SL%", group=grE610)
+i_e610_h4_tp1 = input.float(60, "H4 TP1 ROI%", group=grE610)
+i_e610_h4_tp2 = input.float(120, "H4 TP2 ROI%", group=grE610)
+i_e610_h4_sl  = input.float(50, "H4 Hard SL%", group=grE610)
+
+// ── RSI Divergence ──
+grDiv = "⚡ RSI Divergence"
+i_div_m15    = input.bool(true, "Enable RSI Div M15", group=grDiv)
+i_div_h1     = input.bool(true, "Enable RSI Div H1", group=grDiv)
+i_div_h4     = input.bool(true, "Enable RSI Div H4", group=grDiv)
+i_div_lev    = input.float(1.5, "Leverage Multiplier", group=grDiv)
+i_div_m15_tp1 = input.float(15, "M15 TP1 ROI%", group=grDiv)
+i_div_m15_tp2 = input.float(30, "M15 TP2 ROI%", group=grDiv)
+i_div_m15_sl  = input.float(15, "M15 Hard SL%", group=grDiv)
+i_div_h1_tp1  = input.float(25, "H1 TP1 ROI%", group=grDiv)
+i_div_h1_tp2  = input.float(50, "H1 TP2 ROI%", group=grDiv)
+i_div_h1_sl   = input.float(20, "H1 Hard SL%", group=grDiv)
+i_div_h4_tp1  = input.float(40, "H4 TP1 ROI%", group=grDiv)
+i_div_h4_tp2  = input.float(80, "H4 TP2 ROI%", group=grDiv)
+i_div_h4_sl   = input.float(30, "H4 Hard SL%", group=grDiv)
+
+// ── SD Zone Entry ──
+grSD = "🔶 SD Zone Entry"
+i_sd_m15     = input.bool(true, "Enable SD M15", group=grSD)
+i_sd_h1      = input.bool(true, "Enable SD H1", group=grSD)
+i_sd_h4      = input.bool(true, "Enable SD H4", group=grSD)
+i_sd_wick    = input.float(50, "Wick Ratio Min %", minval=10, maxval=80, group=grSD)
+i_sd_vol     = input.float(1.2, "Volume Multiplier", step=0.1, group=grSD)
+i_sd_m15_tp1 = input.float(15, "M15 TP1 ROI%", group=grSD)
+i_sd_m15_tp2 = input.float(30, "M15 TP2 ROI%", group=grSD)
+i_sd_m15_sl  = input.float(15, "M15 Hard SL%", group=grSD)
+i_sd_h1_tp1  = input.float(25, "H1 TP1 ROI%", group=grSD)
+i_sd_h1_tp2  = input.float(50, "H1 TP2 ROI%", group=grSD)
+i_sd_h1_sl   = input.float(20, "H1 Hard SL%", group=grSD)
+i_sd_h4_tp1  = input.float(40, "H4 TP1 ROI%", group=grSD)
+i_sd_h4_tp2  = input.float(80, "H4 TP2 ROI%", group=grSD)
+i_sd_h4_sl   = input.float(30, "H4 Hard SL%", group=grSD)
+
+// ── Chandelier Exit ──
+grCE = "🔔 Chandelier Exit"
+i_ce_period  = input.int(34, "CE Period", group=grCE)
+i_ce_mult    = input.float(1.75, "CE Multiplier", group=grCE)
+
+// ── Smart SL ──
+grSL = "🛡️ Smart SL"
+i_smart_sl   = input.bool(true, "Enable Smart SL", group=grSL)
+i_vol_thresh = input.int(80, "Volume Threshold %", group=grSL)
+i_ema200_brk = input.bool(true, "EMA200 Break Safety", group=grSL)
+
+// ── ADX Filter ──
+grADX = "📈 ADX Filter"
+i_adx_min    = input.int(20, "ADX Minimum (0=off)", minval=0, maxval=50, group=grADX)
+i_adx_period = input.int(14, "ADX Period", group=grADX)
+
+// ── Visuals ──
+grVis = "🎨 Visuals"
+i_show_pac_l  = input.bool(false, "PAC Low", group=grVis)
+i_show_pac_h  = input.bool(false, "PAC High", group=grVis)
+i_show_pac_c  = input.bool(true,  "PAC Close", group=grVis)
+i_show_ema89  = input.bool(true,  "EMA89", group=grVis)
+i_show_ema200 = input.bool(false, "EMA200", group=grVis)
+i_show_ema610 = input.bool(true,  "EMA610", group=grVis)
+i_show_ce    = input.bool(true, "Show Chandelier Exit", group=grVis)
+i_show_labels = input.bool(true, "Show Signal Shapes", group=grVis)
+i_tf_auto     = input.bool(true, "  └ Auto-filter by chart TF", tooltip="On H1 chart: hide M5/M15 shapes. On M15: hide M5. Disable to show all.", group=grVis)
+i_show_std   = input.bool(true, "  └ Standard", group=grVis)
+i_show_e610  = input.bool(true, "  └ EMA610", group=grVis)
+i_show_div   = input.bool(true, "  └ RSI Divergence", group=grVis)
+i_show_sd    = input.bool(true, "  └ SD Zone", group=grVis)
+i_col_pac    = input.color(#FFFFFF, "PAC Channel Color", group=grVis)
+i_col_ema89  = input.color(#FF0000, "EMA89 Color", group=grVis)
+i_col_ema200 = input.color(#FF00FF, "EMA200 Color", group=grVis)
+i_col_ema610 = input.color(#00FF00, "EMA610 Color", group=grVis)
+i_col_ce_long  = input.color(#22c55e, "CE Long Color", group=grVis)
+i_col_ce_short = input.color(#ef4444, "CE Short Color", group=grVis)
+i_col_std_m5  = input.color(#f472b6, "STD M5 Color", group=grVis)
+i_col_std_m15 = input.color(#a78bfa, "STD M15 Color", group=grVis)
+i_col_std_h1  = input.color(#38bdf8, "STD H1 Color", group=grVis)
+i_col_std_h4  = input.color(#facc15, "STD H4 Color", group=grVis)
+i_col_e610_h1 = input.color(#22c55e, "E610 H1 Color", group=grVis)
+i_col_e610_h4 = input.color(#f97316, "E610 H4 Color", group=grVis)
+i_col_div_m15 = input.color(#ef4444, "DIV M15 Color", group=grVis)
+i_col_div_h1  = input.color(#dc2626, "DIV H1 Color", group=grVis)
+i_col_div_h4  = input.color(#b91c1c, "DIV H4 Color", group=grVis)
+i_col_sd_m15  = input.color(#ff9800, "SD M15 Color", group=grVis)
+i_col_sd_h1   = input.color(#ff6d00, "SD H1 Color", group=grVis)
+i_col_sd_h4   = input.color(#e65100, "SD H4 Color", group=grVis)
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 2: HELPER FUNCTIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Wick analysis ──
+f_lower_wick_pct(o, h, l, c) =>
+    rng = h - l
+    rng > 0 ? (math.min(o, c) - l) / rng * 100 : 0.0
+
+f_upper_wick_pct(o, h, l, c) =>
+    rng = h - l
+    rng > 0 ? (h - math.max(o, c)) / rng * 100 : 0.0
+
+// ── Trend checks ──
+f_buy_trend(ema34, ema89, price) => ema34 > ema89 and price > ema89
+f_sell_trend(ema34, ema89, price) => ema34 < ema89 and price < ema89
+
+// ── Wick touch EMA (standard entry) ──
+f_wick_buy(lo, cl, ema, tol) => lo <= ema * (1 + tol) and cl > ema
+f_wick_sell(hi, cl, ema, tol) => hi >= ema * (1 - tol) and cl < ema
+
+// ── ROI to price conversion ──
+f_tp(entry, roi, lev, isLong) =>
+    move = roi / 100.0 / lev
+    isLong ? entry * (1 + move) : entry * (1 - move)
+
+f_sl(entry, roi, lev, isLong) =>
+    move = roi / 100.0 / lev
+    isLong ? entry * (1 - move) : entry * (1 + move)
+
+// ── SD Zone detection + entry signal (BigBeluga algorithm) ──
+// Returns: 1=demand entry (BUY), -1=supply entry (SELL), 0=none
+// Uses manual EMA instead of ta.sma/ta.atr to avoid extra plot count in request.security
+f_sd_signal(wick_min, vol_mult) =>
+    int _sd_result = 0
+
+    // BigBeluga-exact volume average: array push/shift/avg
+    var float[] _vol_arr = array.new_float(0)
+    _vol_arr.push(volume)
+    if _vol_arr.size() > 1000
+        _vol_arr.shift()
+    bool _sd_extra_vol = volume > _vol_arr.avg()
+
+    // BigBeluga-exact ATR: ta.atr(200) * 2
+    float _sd_atr2 = nz(ta.atr(200)) * 2.0
+
+    bool _sd_bc = close < open
+    bool _sd_uc = close > open
+
+    // Track up to 5 supply + 5 demand zones
+    var float[] _sz_tops = array.new_float(0)
+    var float[] _sz_bots = array.new_float(0)
+    var float[] _dz_tops = array.new_float(0)
+    var float[] _dz_bots = array.new_float(0)
+    var int _supply_cd = 0
+    var int _demand_cd = 0
+
+    // Supply detection: 3 bear + above-avg vol (BigBeluga exact)
+    if _supply_cd > 0
+        _supply_cd -= 1
+    else if _sd_bc and _sd_bc[1] and _sd_bc[2] and _sd_extra_vol[1] and _sd_atr2 > 0
+        for _i = 0 to 5
+            if _sd_uc[_i]
+                _sz_tops.push(low[_i] + _sd_atr2)
+                _sz_bots.push(low[_i])
+                _supply_cd := 12
+                break
+
+    // Demand detection: 3 bull + above-avg vol (BigBeluga exact)
+    if _demand_cd > 0
+        _demand_cd -= 1
+    else if _sd_uc and _sd_uc[1] and _sd_uc[2] and _sd_extra_vol[1] and _sd_atr2 > 0
+        for _i = 0 to 5
+            if _sd_bc[_i]
+                _dz_tops.push(high[_i])
+                _dz_bots.push(high[_i] - _sd_atr2)
+                _demand_cd := 12
+                break
+
+    // Invalidation
+    int _si = _sz_tops.size() - 1
+    while _si >= 0
+        if close > _sz_tops.get(_si)
+            _sz_tops.remove(_si)
+            _sz_bots.remove(_si)
+        _si -= 1
+    int _di = _dz_tops.size() - 1
+    while _di >= 0
+        if close < _dz_bots.get(_di)
+            _dz_tops.remove(_di)
+            _dz_bots.remove(_di)
+        _di -= 1
+
+    // Overlap removal (BigBeluga exact)
+    int _soi = 0
+    while _soi < _sz_tops.size()
+        bool _s_del = false
+        for _soj = 0 to 4
+            if _soj >= _sz_tops.size() or _soj == _soi
+                continue
+            if _sz_tops.get(_soj) < _sz_tops.get(_soi) and _sz_tops.get(_soj) > _sz_bots.get(_soi)
+                _sz_tops.remove(_soi)
+                _sz_bots.remove(_soi)
+                _s_del := true
+                break
+        if not _s_del
+            _soi += 1
+    int _doi = 0
+    while _doi < _dz_tops.size()
+        bool _d_del = false
+        for _doj = 0 to 4
+            if _doj >= _dz_tops.size() or _doj == _doi
+                continue
+            if _dz_bots.get(_doj) < _dz_tops.get(_doi) and _dz_bots.get(_doj) > _dz_bots.get(_doi)
+                _dz_tops.remove(_doi)
+                _dz_bots.remove(_doi)
+                _d_del := true
+                break
+        if not _d_del
+            _doi += 1
+
+    // FIFO max 5
+    while _sz_tops.size() > 5
+        _sz_tops.shift()
+        _sz_bots.shift()
+    while _dz_tops.size() > 5
+        _dz_tops.shift()
+        _dz_bots.shift()
+
+    // VMA20 array-based
+    var float[] _vma_arr = array.new_float(0)
+    _vma_arr.push(volume)
+    if _vma_arr.size() > 20
+        _vma_arr.shift()
+    float _vma20_val = _vma_arr.avg()
+    bool _sd_vol_ok = volume > _vma20_val * vol_mult or volume[1] > _vma20_val * vol_mult
+
+    // Check ALL demand zones for BUY (close must be ABOVE zone top = rejection from above)
+    if _sd_vol_ok
+        for _i = 0 to 4
+            if _i >= _dz_tops.size()
+                break
+            float _dtop = _dz_tops.get(_i)
+            if close <= _dtop
+                continue
+            bool _dt0 = low <= _dtop
+            float _dwr0 = (high - low) > 0 ? (math.min(open, close) - low) / (high - low) * 100.0 : 0.0
+            bool _dt1 = low[1] <= _dtop
+            float _dwr1 = (high[1] - low[1]) > 0 ? (math.min(open[1], close[1]) - low[1]) / (high[1] - low[1]) * 100.0 : 0.0
+            if _dt0 and _dwr0 >= wick_min and _dt1 and _dwr1 >= wick_min
+                _sd_result := 1
+                break
+
+    // Check ALL supply zones for SELL (close must be BELOW zone bottom = rejection from below)
+    if _sd_result == 0 and _sd_vol_ok
+        for _i = 0 to 4
+            if _i >= _sz_tops.size()
+                break
+            float _sbot = _sz_bots.get(_i)
+            if close >= _sbot
+                continue
+            bool _st0 = high >= _sbot
+            float _swr0 = (high - low) > 0 ? (high - math.max(open, close)) / (high - low) * 100.0 : 0.0
+            bool _st1 = high[1] >= _sbot
+            float _swr1 = (high[1] - low[1]) > 0 ? (high[1] - math.max(open[1], close[1])) / (high[1] - low[1]) * 100.0 : 0.0
+            if _st0 and _swr0 >= wick_min and _st1 and _swr1 >= wick_min
+                _sd_result := -1
+                break
+
+    _sd_result
+
+// ── New candle boundary detection ──
+f_new_h4() => ta.change(time("240")) != 0
+f_new_m15() => ta.change(time("15")) != 0
+f_new_h1()  => ta.change(time("60")) != 0
+
+// ── ADX calculation ──
+f_adx(period) =>
+    up   = ta.change(high)
+    down = -ta.change(low)
+    pDM  = up > down and up > 0 ? up : 0.0
+    mDM  = down > up and down > 0 ? down : 0.0
+    tr_  = ta.tr(true)
+    pDI  = 100 * ta.rma(pDM, period) / ta.rma(tr_, period)
+    mDI  = 100 * ta.rma(mDM, period) / ta.rma(tr_, period)
+    dx   = math.abs(pDI - mDI) / (pDI + mDI) * 100
+    ta.rma(dx, period)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 3: MTF DATA FETCHING
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── H4 Data (consolidated to reduce plot count) ──
+[h4_ema34, h4_ema89, h4_ema610] = request.security(syminfo.tickerid, "240", [ta.ema(close, 34), ta.ema(close, 89), ta.ema(close, 610)], lookahead=barmerge.lookahead_off)
+[h4_o, h4_h, h4_l, h4_c] = request.security(syminfo.tickerid, "240", [open, high, low, close], lookahead=barmerge.lookahead_off)
+
+// ── H1 Data (consolidated) ──
+[h1_ema34, h1_ema89, h1_ema610] = request.security(syminfo.tickerid, "60", [ta.ema(close, 34), ta.ema(close, 89), ta.ema(close, 610)], lookahead=barmerge.lookahead_off)
+[h1_rsi, h1_adx] = request.security(syminfo.tickerid, "60", [ta.rsi(close, 14), f_adx(i_adx_period)], lookahead=barmerge.lookahead_off)
+[h1_o, h1_h, h1_l, h1_c] = request.security(syminfo.tickerid, "60", [open, high, low, close], lookahead=barmerge.lookahead_off)
+
+// ── H1/H4 Chandelier Exit (consolidated) ──
+f_ce_long(p, m)  => ta.highest(high, p) - ta.atr(p) * m
+f_ce_short(p, m) => ta.lowest(low, p) + ta.atr(p) * m
+
+[h4_ce_long, h4_ce_short] = request.security(syminfo.tickerid, "240", [f_ce_long(i_ce_period, i_ce_mult), f_ce_short(i_ce_period, i_ce_mult)], lookahead=barmerge.lookahead_off)
+[h1_ce_long, h1_ce_short] = request.security(syminfo.tickerid, "60", [f_ce_long(i_ce_period, i_ce_mult), f_ce_short(i_ce_period, i_ce_mult)], lookahead=barmerge.lookahead_off)
+
+// ── M15 Indicators (via request.security for multi-TF chart support) ──
+[m15_ema34, m15_ema89, m15_ema200, m15_close] = request.security(syminfo.tickerid, "15", [ta.ema(close, 34), ta.ema(close, 89), ta.ema(close, 200), close], lookahead=barmerge.lookahead_off)
+[m15_rsi, m15_adx, m15_vol_avg, m15_vol] = request.security(syminfo.tickerid, "15", [ta.rsi(close, 14), f_adx(i_adx_period), ta.sma(volume, 21), volume], lookahead=barmerge.lookahead_off)
+[m15_ce_long, m15_ce_short] = request.security(syminfo.tickerid, "15", [f_ce_long(i_ce_period, i_ce_mult), f_ce_short(i_ce_period, i_ce_mult)], lookahead=barmerge.lookahead_off)
+// M15 prev candle OHLC + EMA (for wick detection on closed M15 candle)
+[m15_p_o, m15_p_h, m15_p_l, m15_p_c] = request.security(syminfo.tickerid, "15", [open[1], high[1], low[1], close[1]], lookahead=barmerge.lookahead_off)
+[m15_ema34_p, m15_ema89_p] = request.security(syminfo.tickerid, "15", [ta.ema(close, 34)[1], ta.ema(close, 89)[1]], lookahead=barmerge.lookahead_off)
+
+// ── M5 Data (lower TF) ──
+type LTFBar
+    float o
+    float h
+    float l
+    float c
+    float v
+
+f_ltf_bar() => LTFBar.new(open, high, low, close, volume)
+m5_bars = request.security_lower_tf(syminfo.tickerid, "5", f_ltf_bar(), ignore_invalid_timeframe=true)
+
+// M5 EMA34/89 (wick touch checks M5's own EMA, not M15's)
+[m5_ema34, m5_ema89] = request.security(syminfo.tickerid, "5", [ta.ema(close, 34), ta.ema(close, 89)], lookahead=barmerge.lookahead_off)
+
+// ── SD Zone Signals (per TF, uses BigBeluga zone detection internally) ──
+m15_sd_sig = request.security(syminfo.tickerid, "15", f_sd_signal(i_sd_wick, i_sd_vol), lookahead=barmerge.lookahead_off)
+h1_sd_sig  = request.security(syminfo.tickerid, "60", f_sd_signal(i_sd_wick, i_sd_vol), lookahead=barmerge.lookahead_off)
+h4_sd_sig  = request.security(syminfo.tickerid, "240", f_sd_signal(i_sd_wick, i_sd_vol), lookahead=barmerge.lookahead_off)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 4: SHARED FILTERS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// H4 trend (required for ALL standard + ema610 entries)
+h4_buy_trend  = f_buy_trend(h4_ema34, h4_ema89, h4_c)
+h4_sell_trend = f_sell_trend(h4_ema34, h4_ema89, h4_c)
+
+// H1 trend + RSI filter
+h1_buy_trend  = f_buy_trend(h1_ema34, h1_ema89, h1_c)
+h1_sell_trend = f_sell_trend(h1_ema34, h1_ema89, h1_c)
+h1_rsi_buy_ok = h1_rsi < 70
+h1_rsi_sell_ok = h1_rsi > 30
+
+// M15 trend
+m15_buy_trend = f_buy_trend(m15_ema34, m15_ema89, m15_close)
+m15_sell_trend = f_sell_trend(m15_ema34, m15_ema89, m15_close)
+
+// ADX filter
+adx_ok = i_adx_min <= 0 or h1_adx >= i_adx_min
+
+// Candle boundary detection
+new_m15 = f_new_m15()
+new_h4  = f_new_h4()
+new_h1  = f_new_h1()
+
+// ── M15 Divergence EMA Block ──
+var int div_ema_block = 0  // 1=block BUY, -1=block SELL, 0=none
+if div_ema_block == 1 and m15_rsi <= 50
+    div_ema_block := 0
+if div_ema_block == -1 and m15_rsi >= 50
+    div_ema_block := 0
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POSITION STATE ARRAYS (declared early — needed by signal slot checks)
+// ══════════════════════════════════════════════════════════════════════════════
+// Slots: 0=STD_M5, 1=STD_M15, 2=STD_H1, 3=STD_H4, 4=E610_H1, 5=E610_H4,
+//        6=DIV_M15, 7=DIV_H1, 8=DIV_H4, 9=SD_M15, 10=SD_H1, 11=SD_H4
+var float[] p_entry  = array.new_float(12, na)
+var int[]   p_bar    = array.new_int(12, 0)
+var int[]   p_side   = array.new_int(12, 0)   // 1=LONG, -1=SHORT, 0=flat
+var bool[]  p_tp1    = array.new_bool(12, false)
+var float[] p_tp1_px = array.new_float(12, na)
+var float[] p_tp2_px = array.new_float(12, na)
+var float[] p_sl_px  = array.new_float(12, na)
+var float[] p_ce_px  = array.new_float(12, na)
+var bool[]  p_armed  = array.new_bool(12, false)
+var int[] sl_cooldown = array.new_int(12, 0)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 5: STANDARD ENTRY DETECTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Dedup vars ──
+var int last_std_h4_bar = 0
+var int last_std_h1_bar = 0
+var int last_std_m15_bar = 0
+
+// ── Standard H4 ──
+std_h4_wick_buy = f_wick_buy(h4_l, h4_c, h4_ema34, i_tol_h4) or f_wick_buy(h4_l, h4_c, h4_ema89, i_tol_h4)
+std_h4_wick_sell = f_wick_sell(h4_h, h4_c, h4_ema34, i_tol_h4) or f_wick_sell(h4_h, h4_c, h4_ema89, i_tol_h4)
+std_h4_rej_buy  = f_lower_wick_pct(h4_o, h4_h, h4_l, h4_c) >= i_wick_pct
+std_h4_rej_sell = f_upper_wick_pct(h4_o, h4_h, h4_l, h4_c) >= i_wick_pct
+
+sig_std_h4_buy  = i_std_h4 and new_h4 and bar_index != last_std_h4_bar and array.get(p_side, 3) == 0 and h4_buy_trend and adx_ok and std_h4_wick_buy and std_h4_rej_buy and div_ema_block != 1
+sig_std_h4_sell = i_std_h4 and new_h4 and bar_index != last_std_h4_bar and array.get(p_side, 3) == 0 and h4_sell_trend and adx_ok and std_h4_wick_sell and std_h4_rej_sell and div_ema_block != -1
+
+// ── Standard H1 ──
+std_h1_wick_buy = f_wick_buy(h1_l, h1_c, h1_ema34, i_tol_h1) or f_wick_buy(h1_l, h1_c, h1_ema89, i_tol_h1)
+std_h1_wick_sell = f_wick_sell(h1_h, h1_c, h1_ema34, i_tol_h1) or f_wick_sell(h1_h, h1_c, h1_ema89, i_tol_h1)
+std_h1_rej_buy  = f_lower_wick_pct(h1_o, h1_h, h1_l, h1_c) >= i_wick_pct
+std_h1_rej_sell = f_upper_wick_pct(h1_o, h1_h, h1_l, h1_c) >= i_wick_pct
+
+sig_std_h1_buy  = i_std_h1 and new_h1 and bar_index != last_std_h1_bar and array.get(p_side, 2) == 0 and h4_buy_trend and adx_ok and h1_buy_trend and h1_rsi_buy_ok and std_h1_wick_buy and std_h1_rej_buy and div_ema_block != 1
+sig_std_h1_sell = i_std_h1 and new_h1 and bar_index != last_std_h1_bar and array.get(p_side, 2) == 0 and h4_sell_trend and adx_ok and h1_sell_trend and h1_rsi_sell_ok and std_h1_wick_sell and std_h1_rej_sell and div_ema_block != -1
+
+// ── Standard M15 (uses security-fetched prev M15 candle data) ──
+std_m15_wick_buy = f_wick_buy(m15_p_l, m15_p_c, m15_ema34_p, i_tol_m15) or f_wick_buy(m15_p_l, m15_p_c, m15_ema89_p, i_tol_m15)
+std_m15_wick_sell = f_wick_sell(m15_p_h, m15_p_c, m15_ema34_p, i_tol_m15) or f_wick_sell(m15_p_h, m15_p_c, m15_ema89_p, i_tol_m15)
+std_m15_rej_buy  = f_lower_wick_pct(m15_p_o, m15_p_h, m15_p_l, m15_p_c) >= i_wick_pct
+std_m15_rej_sell = f_upper_wick_pct(m15_p_o, m15_p_h, m15_p_l, m15_p_c) >= i_wick_pct
+
+sig_std_m15_buy  = i_std_m15 and new_m15 and bar_index != last_std_m15_bar and array.get(p_side, 1) == 0 and h4_buy_trend and adx_ok and h1_buy_trend and h1_rsi_buy_ok and m15_buy_trend and std_m15_wick_buy and std_m15_rej_buy and div_ema_block != 1
+sig_std_m15_sell = i_std_m15 and new_m15 and bar_index != last_std_m15_bar and array.get(p_side, 1) == 0 and h4_sell_trend and adx_ok and h1_sell_trend and h1_rsi_sell_ok and m15_sell_trend and std_m15_wick_sell and std_m15_rej_sell and div_ema_block != -1
+
+// ── Standard M5 (scan intrabar data) ──
+var bool sig_std_m5_buy  = false
+var bool sig_std_m5_sell = false
+var int last_std_m5_bar  = 0
+sig_std_m5_buy  := false
+sig_std_m5_sell := false
+
+// M5 chart detection (security_lower_tf("5") on M5 chart returns 1 element = current unclosed bar, NOT sub-bars)
+_is_m5_chart = timeframe.in_seconds() <= 300
+
+// M5 signal via intrabar sub-candles (only on charts HIGHER than M5: M15/H1/H4)
+// Wick touch checks M5 EMA34/89 (each TF checks its OWN EMA, not parent TF)
+if i_std_m5 and not _is_m5_chart and m5_bars.size() > 0 and h4_buy_trend and adx_ok and h1_buy_trend and h1_rsi_buy_ok and m15_buy_trend and div_ema_block != 1
+    for i = 0 to m5_bars.size() - 1
+        b = m5_bars.get(i)
+        if (f_wick_buy(b.l, b.c, m5_ema34, i_tol_m5) or f_wick_buy(b.l, b.c, m5_ema89, i_tol_m5)) and f_lower_wick_pct(b.o, b.h, b.l, b.c) >= i_wick_pct
+            sig_std_m5_buy := true
+            break
+
+if i_std_m5 and not _is_m5_chart and m5_bars.size() > 0 and not sig_std_m5_buy and h4_sell_trend and adx_ok and h1_sell_trend and h1_rsi_sell_ok and m15_sell_trend and div_ema_block != -1
+    for i = 0 to m5_bars.size() - 1
+        b = m5_bars.get(i)
+        if (f_wick_sell(b.h, b.c, m5_ema34, i_tol_m5) or f_wick_sell(b.h, b.c, m5_ema89, i_tol_m5)) and f_upper_wick_pct(b.o, b.h, b.l, b.c) >= i_wick_pct
+            sig_std_m5_sell := true
+            break
+
+// M5 signal on M5 chart: use previous CLOSED candle [1] with M5 EMA[1]
+if i_std_m5 and _is_m5_chart
+    if h4_buy_trend and adx_ok and h1_buy_trend and h1_rsi_buy_ok and m15_buy_trend and div_ema_block != 1
+        if (f_wick_buy(low[1], close[1], m5_ema34[1], i_tol_m5) or f_wick_buy(low[1], close[1], m5_ema89[1], i_tol_m5)) and f_lower_wick_pct(open[1], high[1], low[1], close[1]) >= i_wick_pct
+            sig_std_m5_buy := true
+    if not sig_std_m5_buy and h4_sell_trend and adx_ok and h1_sell_trend and h1_rsi_sell_ok and m15_sell_trend and div_ema_block != -1
+        if (f_wick_sell(high[1], close[1], m5_ema34[1], i_tol_m5) or f_wick_sell(high[1], close[1], m5_ema89[1], i_tol_m5)) and f_upper_wick_pct(open[1], high[1], low[1], close[1]) >= i_wick_pct
+            sig_std_m5_sell := true
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 6: EMA610 ENTRY DETECTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+var int last_e610_h4_bar = 0
+var int last_e610_h1_bar = 0
+
+// EMA610 re-entry cooldown: count TF candles since last entry
+var int e610_h1_cd = 99
+var int e610_h4_cd = 99
+if new_h1
+    e610_h1_cd += 1
+if new_h4
+    e610_h4_cd += 1
+
+// H4 EMA alignment: EMA34+89 vs EMA610 (NOT cross)
+e610_h4_buy_align  = h4_ema34 > h4_ema610 and h4_ema89 > h4_ema610
+e610_h4_sell_align = h4_ema34 < h4_ema610 and h4_ema89 < h4_ema610
+
+// H1 EMA alignment (additional check for H1 entries)
+e610_h1_buy_align  = h1_ema34 > h1_ema610 and h1_ema89 > h1_ema610
+e610_h1_sell_align = h1_ema34 < h1_ema610 and h1_ema89 < h1_ema610
+
+// Distance filter
+h4_e610_dist = math.abs(h4_c - h4_ema610) / h4_ema610
+h1_e610_dist = math.abs(h1_c - h1_ema610) / h1_ema610
+
+// Touch detection: wick crosses EMA610 ±tolerance
+e610_h4_touch_buy  = h4_l <= h4_ema610 * (1 + i_e610_tol) and h4_c > h4_ema610
+e610_h4_touch_sell = h4_h >= h4_ema610 * (1 - i_e610_tol) and h4_c < h4_ema610
+e610_h1_touch_buy  = h1_l <= h1_ema610 * (1 + i_e610_tol) and h1_c > h1_ema610
+e610_h1_touch_sell = h1_h >= h1_ema610 * (1 - i_e610_tol) and h1_c < h1_ema610
+
+// EMA610 H4 signals (cooldown: 4 H4 candles between entries)
+sig_e610_h4_buy  = i_e610_h4 and new_h4 and e610_h4_cd >= 4 and array.get(p_side, 5) == 0 and e610_h4_buy_align and adx_ok and h4_e610_dist <= i_e610_dist and e610_h4_touch_buy and div_ema_block != 1
+sig_e610_h4_sell = i_e610_h4 and new_h4 and e610_h4_cd >= 4 and array.get(p_side, 5) == 0 and e610_h4_sell_align and adx_ok and h4_e610_dist <= i_e610_dist and e610_h4_touch_sell and div_ema_block != -1
+
+// EMA610 H1 signals (cooldown: 4 H1 candles between entries)
+sig_e610_h1_buy  = i_e610_h1 and new_h1 and e610_h1_cd >= 4 and array.get(p_side, 4) == 0 and e610_h4_buy_align and e610_h1_buy_align and adx_ok and h1_e610_dist <= i_e610_dist and e610_h1_touch_buy and div_ema_block != 1
+sig_e610_h1_sell = i_e610_h1 and new_h1 and e610_h1_cd >= 4 and array.get(p_side, 4) == 0 and e610_h4_sell_align and e610_h1_sell_align and adx_ok and h1_e610_dist <= i_e610_dist and e610_h1_touch_sell and div_ema_block != -1
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 7: RSI DIVERGENCE DETECTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+// RSI Divergence — matches live bot RSIDivergence.detect() from indicators.py
+// Fractal window=3 (7 bars: 3L+1C+3R), min_swing_distance=8, RSI zones 70/30
+// Filters: lookback distance, RSI reset (crossed 50), 1.5% retracement, divergence resolved
+// Returns: 1=bullish (BUY), -1=bearish (SELL), 0=none
+f_rsi_divergence(src_h, src_l, rsi_src, lookback) =>
+    int result = 0
+    // Price pivots — confirmed 3 bars after the actual pivot
+    ph = ta.pivothigh(src_h, 3, 3)
+    pl = ta.pivotlow(src_l, 3, 3)
+    // RSI at the pivot bar (3 bars back, where pivot actually occurred)
+    float rsi_at_pivot = rsi_src[3]
+
+    // ── Swing High state (bearish divergence) ──
+    var float prev_sh_price = na
+    var float prev_sh_rsi   = na
+    var int   prev_sh_bar   = -1
+    var float curr_sh_price = na
+    var float curr_sh_rsi   = na
+    var int   curr_sh_bar   = -1
+    var float rsi_min_btwn_sh  = na   // min RSI between consecutive swing highs
+    var float low_min_btwn_sh  = na   // min low between consecutive swing highs
+    var bool  sh_rsi_reset     = false // RSI crossed 50 between prev↔curr swing highs
+    var bool  sh_retrace_ok    = false // price retraced ≥1.5% between prev↔curr
+
+    // ── Swing Low state (bullish divergence) ──
+    var float prev_sl_price = na
+    var float prev_sl_rsi   = na
+    var int   prev_sl_bar   = -1
+    var float curr_sl_price = na
+    var float curr_sl_rsi   = na
+    var int   curr_sl_bar   = -1
+    var float rsi_max_btwn_sl  = na   // max RSI between consecutive swing lows
+    var float high_max_btwn_sl = na   // max high between consecutive swing lows
+    var bool  sl_rsi_reset     = false
+    var bool  sl_retrace_ok    = false
+
+    // ── Update running stats each bar (between current swing and next) ──
+    if curr_sh_bar >= 0 and bar_index > curr_sh_bar and not na(rsi_src)
+        rsi_min_btwn_sh := na(rsi_min_btwn_sh) ? rsi_src : math.min(rsi_min_btwn_sh, rsi_src)
+        low_min_btwn_sh := na(low_min_btwn_sh) ? src_l   : math.min(low_min_btwn_sh, src_l)
+    if curr_sl_bar >= 0 and bar_index > curr_sl_bar and not na(rsi_src)
+        rsi_max_btwn_sl := na(rsi_max_btwn_sl) ? rsi_src : math.max(rsi_max_btwn_sl, rsi_src)
+        high_max_btwn_sl := na(high_max_btwn_sl) ? src_h  : math.max(high_max_btwn_sl, src_h)
+
+    // Temp vars for retracement calc (must declare at function scope in PineScript)
+    float _ref_sh = 0.0
+    float _ref_sl = 0.0
+
+    // ── New Swing High: price pivot + RSI > 70 (overbought zone) ──
+    if not na(ph) and not na(rsi_at_pivot) and rsi_at_pivot > 70.0
+        if curr_sh_bar < 0 or (bar_index - curr_sh_bar) >= 8  // min 8 bars distance
+            // Save pair stats BEFORE shift (stats between old-curr and new swing)
+            sh_rsi_reset := not na(rsi_min_btwn_sh) and rsi_min_btwn_sh < 50.0
+            _ref_sh := not na(curr_sh_price) ? math.min(curr_sh_price, ph) : 0.0
+            sh_retrace_ok := _ref_sh > 0 and not na(low_min_btwn_sh) ? ((_ref_sh - low_min_btwn_sh) / _ref_sh * 100 >= 1.5) : false
+            // Shift: curr → prev, new → curr
+            prev_sh_price := curr_sh_price
+            prev_sh_rsi   := curr_sh_rsi
+            prev_sh_bar   := curr_sh_bar
+            curr_sh_price := ph
+            curr_sh_rsi   := rsi_at_pivot
+            curr_sh_bar   := bar_index
+            // Reset running stats for next interval
+            rsi_min_btwn_sh := na
+            low_min_btwn_sh := na
+
+    // ── New Swing Low: price pivot + RSI < 30 (oversold zone) ──
+    if not na(pl) and not na(rsi_at_pivot) and rsi_at_pivot < 30.0
+        if curr_sl_bar < 0 or (bar_index - curr_sl_bar) >= 8
+            sl_rsi_reset := not na(rsi_max_btwn_sl) and rsi_max_btwn_sl > 50.0
+            _ref_sl := not na(curr_sl_price) ? math.max(curr_sl_price, pl) : 0.0
+            sl_retrace_ok := _ref_sl > 0 and not na(high_max_btwn_sl) ? ((high_max_btwn_sl - _ref_sl) / _ref_sl * 100 >= 1.5) : false
+            prev_sl_price := curr_sl_price
+            prev_sl_rsi   := curr_sl_rsi
+            prev_sl_bar   := curr_sl_bar
+            curr_sl_price := pl
+            curr_sl_rsi   := rsi_at_pivot
+            curr_sl_bar   := bar_index
+            rsi_max_btwn_sl := na
+            high_max_btwn_sl := na
+
+    // ── Bearish divergence: HH price + LH RSI ──
+    // Lookback: both swings must be within lookback bars from CURRENT bar
+    // (matches bot: df.tail(lookback) — old swings naturally expire)
+    if not na(prev_sh_price) and not na(curr_sh_price) and prev_sh_bar >= 0
+        if (bar_index - prev_sh_bar) <= lookback          // both swings within window
+            if not na(rsi_src) and rsi_src >= 70.0        // not resolved (RSI still overbought)
+                if not sh_rsi_reset                       // RSI didn't cross 50 (same cycle)
+                    if sh_retrace_ok                      // price retraced ≥1.5%
+                        if curr_sh_price > prev_sh_price and curr_sh_rsi < prev_sh_rsi
+                            result := -1
+
+    // ── Bullish divergence: LL price + HL RSI ──
+    if not na(prev_sl_price) and not na(curr_sl_price) and prev_sl_bar >= 0
+        if (bar_index - prev_sl_bar) <= lookback          // both swings within window
+            if not na(rsi_src) and rsi_src <= 30.0        // not resolved (RSI still oversold)
+                if not sl_rsi_reset
+                    if sl_retrace_ok
+                        if curr_sl_price < prev_sl_price and curr_sl_rsi > prev_sl_rsi
+                            result := 1
+
+    result
+
+// M15 divergence (via security context for multi-TF chart support)
+m15_div_sec = request.security(syminfo.tickerid, "15", f_rsi_divergence(high, low, ta.rsi(close, 14), 200), lookahead=barmerge.lookahead_off)
+
+// Detect TRANSITION from no-div to div (fire once per new M15 candle)
+var int prev_m15_div = 0
+m15_div_raw = new_m15 ? m15_div_sec : 0
+m15_div = m15_div_raw != 0 and prev_m15_div == 0 ? m15_div_raw : 0
+if new_m15
+    prev_m15_div := m15_div_sec
+
+// H1 divergence (runs on H1 close, transition-detect)
+h1_div_sec = request.security(syminfo.tickerid, "60", f_rsi_divergence(high, low, ta.rsi(close, 14), 160), lookahead=barmerge.lookahead_off)
+var int prev_h1_div = 0
+h1_div_raw = new_h1 ? h1_div_sec : 0
+h1_div = h1_div_raw != 0 and prev_h1_div == 0 ? h1_div_raw : 0
+if new_h1
+    prev_h1_div := h1_div_sec
+
+// H4 divergence (runs on H4 close, transition-detect)
+h4_div_sec = request.security(syminfo.tickerid, "240", f_rsi_divergence(high, low, ta.rsi(close, 14), 80), lookahead=barmerge.lookahead_off)
+var int prev_h4_div = 0
+h4_div_raw = new_h4 ? h4_div_sec : 0
+h4_div = h4_div_raw != 0 and prev_h4_div == 0 ? h4_div_raw : 0
+if new_h4
+    prev_h4_div := h4_div_sec
+
+// Dedup for div entries
+var int last_div_m15_bar = 0
+var int last_div_h1_bar  = 0
+var int last_div_h4_bar  = 0
+
+// RSI Div signals (only fire on NEW divergence transition)
+sig_div_m15_buy  = i_div_m15 and m15_div == 1 and bar_index != last_div_m15_bar and array.get(p_side, 6) == 0
+sig_div_m15_sell = i_div_m15 and m15_div == -1 and bar_index != last_div_m15_bar and array.get(p_side, 6) == 0
+sig_div_h1_buy   = i_div_h1 and h1_div == 1 and bar_index != last_div_h1_bar and array.get(p_side, 7) == 0
+sig_div_h1_sell  = i_div_h1 and h1_div == -1 and bar_index != last_div_h1_bar and array.get(p_side, 7) == 0
+sig_div_h4_buy   = i_div_h4 and h4_div == 1 and bar_index != last_div_h4_bar and array.get(p_side, 8) == 0
+sig_div_h4_sell  = i_div_h4 and h4_div == -1 and bar_index != last_div_h4_bar and array.get(p_side, 8) == 0
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 7B: SD ZONE ENTRY DETECTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Transition detection (fire once per new candle)
+var int prev_m15_sd = 0
+m15_sd_raw = new_m15 ? m15_sd_sig : 0
+m15_sd = m15_sd_raw != 0 and prev_m15_sd == 0 ? m15_sd_raw : 0
+if new_m15
+    prev_m15_sd := m15_sd_sig
+
+var int prev_h1_sd = 0
+h1_sd_raw = new_h1 ? h1_sd_sig : 0
+h1_sd = h1_sd_raw != 0 and prev_h1_sd == 0 ? h1_sd_raw : 0
+if new_h1
+    prev_h1_sd := h1_sd_sig
+
+var int prev_h4_sd = 0
+h4_sd_raw = new_h4 ? h4_sd_sig : 0
+h4_sd = h4_sd_raw != 0 and prev_h4_sd == 0 ? h4_sd_raw : 0
+if new_h4
+    prev_h4_sd := h4_sd_sig
+
+// Dedup
+var int last_sd_m15_bar = 0
+var int last_sd_h1_bar  = 0
+var int last_sd_h4_bar  = 0
+
+// SD signals
+sig_sd_m15_buy  = i_sd_m15 and m15_sd == 1 and bar_index != last_sd_m15_bar and array.get(p_side, 9) == 0
+sig_sd_m15_sell = i_sd_m15 and m15_sd == -1 and bar_index != last_sd_m15_bar and array.get(p_side, 9) == 0
+sig_sd_h1_buy   = i_sd_h1 and h1_sd == 1 and bar_index != last_sd_h1_bar and array.get(p_side, 10) == 0
+sig_sd_h1_sell  = i_sd_h1 and h1_sd == -1 and bar_index != last_sd_h1_bar and array.get(p_side, 10) == 0
+sig_sd_h4_buy   = i_sd_h4 and h4_sd == 1 and bar_index != last_sd_h4_bar and array.get(p_side, 11) == 0
+sig_sd_h4_sell  = i_sd_h4 and h4_sd == -1 and bar_index != last_sd_h4_bar and array.get(p_side, 11) == 0
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 8: ENTRY EXECUTION & EXIT MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Entry IDs
+ENTRY_IDS = array.from("M5_L","M5_S","M15_L","M15_S","H1_L","H1_S","H4_L","H4_S","E1_L","E1_S","E4_L","E4_S","D15_L","D15_S","D1_L","D1_S","D4_L","D4_S","S15_L","S15_S","SH1_L","SH1_S","SH4_L","SH4_S")
+
+// Grace periods (M15 candles)
+f_grace(idx) =>
+    switch idx
+        0 => 1
+        1 => 1
+        2 => 4
+        3 => 16
+        4 => 1
+        5 => 1
+        6 => 1
+        7 => 4
+        8 => 16
+        9 => 1
+        10 => 4
+        11 => 16
+        => 1
+
+// TP1 close percentage
+f_tp1_close_pct(idx) =>
+    idx == 4 or idx == 5 ? 50 : 70  // EMA610 = 50%, rest = 70%
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 9: EXIT MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Get CE value with fallback chain
+f_get_ce(idx, side) =>
+    float ce = na
+    if side == 1  // LONG → use chandelier_long
+        if idx == 3 or idx == 5 or idx == 8 or idx == 11  // H4 entries: H4→H1→M15
+            ce := h4_ce_long
+            entry = array.get(p_entry, idx)
+            if not na(entry) and not na(ce) and ce < entry
+                ce := h1_ce_long
+            if not na(entry) and not na(ce) and ce < entry
+                ce := m15_ce_long
+        else if idx == 2 or idx == 4 or idx == 7 or idx == 10  // H1 entries: H1→M15
+            ce := h1_ce_long
+            entry = array.get(p_entry, idx)
+            if not na(entry) and not na(ce) and ce < entry
+                ce := m15_ce_long
+        else  // M5/M15/SD_M15: M15 only
+            ce := m15_ce_long
+    else if side == -1  // SHORT → use chandelier_short
+        if idx == 3 or idx == 5 or idx == 8 or idx == 11
+            ce := h4_ce_short
+            entry = array.get(p_entry, idx)
+            if not na(entry) and not na(ce) and ce > entry
+                ce := h1_ce_short
+            if not na(entry) and not na(ce) and ce > entry
+                ce := m15_ce_short
+        else if idx == 2 or idx == 4 or idx == 7 or idx == 10
+            ce := h1_ce_short
+            entry = array.get(p_entry, idx)
+            if not na(entry) and not na(ce) and ce > entry
+                ce := m15_ce_short
+        else
+            ce := m15_ce_short
+    ce
+
+// Check exits for all active positions
+f_close_position(idx) =>
+    array.set(p_side, idx, 0)
+    array.set(p_entry, idx, na)
+    array.set(p_tp1, idx, false)
+    array.set(p_armed, idx, false)
+    array.set(p_ce_px, idx, na)
+
+for idx = 0 to 11
+    side = array.get(p_side, idx)
+    if side != 0
+        entry    = array.get(p_entry, idx)
+        sl_px    = array.get(p_sl_px, idx)
+        tp1_px   = array.get(p_tp1_px, idx)
+        tp2_px   = array.get(p_tp2_px, idx)
+        tp1_hit  = array.get(p_tp1, idx)
+        armed    = array.get(p_armed, idx)
+        bars_in  = bar_index - array.get(p_bar, idx)
+        grace    = f_grace(idx)
+        is_std   = idx <= 3
+
+        // Entry ID for strategy.close
+        eid = side == 1 ? array.get(ENTRY_IDS, idx * 2) : array.get(ENTRY_IDS, idx * 2 + 1)
+
+        // 1. Hard SL (wick trigger)
+        sl_hit = (side == 1 and low <= sl_px) or (side == -1 and high >= sl_px)
+        if sl_hit
+            strategy.close(eid)
+            array.set(sl_cooldown, idx, bar_index)  // SL cooldown: block re-entry this bar
+            f_close_position(idx)
+            continue
+
+        // 2. CE Trailing (close-price trigger, after grace)
+        if bars_in >= grace
+            array.set(p_armed, idx, true)
+        if array.get(p_armed, idx)
+            ce_val = f_get_ce(idx, side)
+            if not na(ce_val)
+                // Smart SL breathing (Standard only, using M15 data)
+                smart_skip = is_std and i_smart_sl and m15_vol < m15_vol_avg * (i_vol_thresh / 100.0)
+                ema200_broken = (side == 1 and m15_close < m15_ema200) or (side == -1 and m15_close > m15_ema200)
+                if smart_skip and not ema200_broken
+                    noop = 0  // breathing — skip CE this bar
+                else
+                    ce_triggered = (side == 1 and m15_close <= ce_val) or (side == -1 and m15_close >= ce_val)
+                    if ce_triggered
+                        strategy.close(eid)
+                        f_close_position(idx)
+                        continue
+
+        // 3. TP1 (wick trigger, partial close)
+        if not tp1_hit and not na(tp1_px)
+            tp1_hit_now = (side == 1 and high >= tp1_px) or (side == -1 and low <= tp1_px)
+            if tp1_hit_now
+                pct = f_tp1_close_pct(idx)
+                strategy.close(eid, qty_percent=pct)
+                array.set(p_tp1, idx, true)
+
+        // 4. TP2 (full close after TP1)
+        if array.get(p_tp1, idx) and not na(tp2_px)
+            tp2_hit = (side == 1 and high >= tp2_px) or (side == -1 and low <= tp2_px)
+            if tp2_hit
+                strategy.close(eid)
+                f_close_position(idx)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 10: ENTRY EXECUTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Helper: open position and set state
+f_open(idx, isLong, tp1r, tp2r, slr, lev) =>
+    side = isLong ? 1 : -1
+    eid  = isLong ? array.get(ENTRY_IDS, idx * 2) : array.get(ENTRY_IDS, idx * 2 + 1)
+    qty  = i_margin * lev  // USD cash amount (strategy.cash mode)
+    ep   = close
+
+    if isLong
+        strategy.entry(eid, strategy.long, qty=qty)
+    else
+        strategy.entry(eid, strategy.short, qty=qty)
+
+    array.set(p_entry, idx, ep)
+    array.set(p_bar, idx, bar_index)
+    array.set(p_side, idx, side)
+    array.set(p_tp1, idx, false)
+    array.set(p_armed, idx, false)
+    array.set(p_tp1_px, idx, f_tp(ep, tp1r, lev, isLong))
+    array.set(p_tp2_px, idx, f_tp(ep, tp2r, lev, isLong))
+    array.set(p_sl_px, idx, f_sl(ep, slr, lev, isLong))
+
+// ── Close existing positions for RSI Div entry ──
+f_close_std_ema(isLong) =>
+    // Close opposite standard + ema610 positions
+    for i = 0 to 5
+        s = array.get(p_side, i)
+        if s != 0
+            eid = s == 1 ? array.get(ENTRY_IDS, i * 2) : array.get(ENTRY_IDS, i * 2 + 1)
+            strategy.close(eid)
+            f_close_position(i)
+
+// Helper: check SL cooldown (no re-entry on same bar after SL)
+f_sl_ok(idx) => array.get(sl_cooldown, idx) != bar_index
+
+// Track actual entries for accurate plotshape (signal ≠ entry when overlap blocks)
+bool m5_entered_buy = false
+bool m5_entered_sell = false
+
+// ── Standard M5 (overlap checked here AFTER exit loop has run) ──
+if sig_std_m5_buy and array.get(p_side, 0) == 0 and array.get(p_side, 1) == 0 and f_sl_ok(0)
+    f_open(0, true, i_std_m5_tp1, i_std_m5_tp2, i_std_m5_sl, i_leverage)
+    last_std_m5_bar := bar_index
+    m5_entered_buy := true
+if sig_std_m5_sell and array.get(p_side, 0) == 0 and array.get(p_side, 1) == 0 and f_sl_ok(0)
+    f_open(0, false, i_std_m5_tp1, i_std_m5_tp2, i_std_m5_sl, i_leverage)
+    last_std_m5_bar := bar_index
+    m5_entered_sell := true
+
+// ── Standard M15 ──
+if sig_std_m15_buy and array.get(p_side, 1) == 0 and array.get(p_side, 0) == 0 and f_sl_ok(1)
+    f_open(1, true, i_std_m5_tp1, i_std_m5_tp2, i_std_m5_sl, i_leverage)
+    last_std_m15_bar := bar_index
+if sig_std_m15_sell and array.get(p_side, 1) == 0 and array.get(p_side, 0) == 0 and f_sl_ok(1)
+    f_open(1, false, i_std_m5_tp1, i_std_m5_tp2, i_std_m5_sl, i_leverage)
+    last_std_m15_bar := bar_index
+
+// ── Standard H1 ──
+if sig_std_h1_buy and array.get(p_side, 2) == 0 and f_sl_ok(2)
+    f_open(2, true, i_std_h1_tp1, i_std_h1_tp2, i_std_h1_sl, i_leverage)
+    last_std_h1_bar := bar_index
+if sig_std_h1_sell and array.get(p_side, 2) == 0 and f_sl_ok(2)
+    f_open(2, false, i_std_h1_tp1, i_std_h1_tp2, i_std_h1_sl, i_leverage)
+    last_std_h1_bar := bar_index
+
+// ── Standard H4 ──
+if sig_std_h4_buy and array.get(p_side, 3) == 0 and f_sl_ok(3)
+    f_open(3, true, i_std_h4_tp1, i_std_h4_tp2, i_std_h4_sl, i_leverage)
+    last_std_h4_bar := bar_index
+if sig_std_h4_sell and array.get(p_side, 3) == 0 and f_sl_ok(3)
+    f_open(3, false, i_std_h4_tp1, i_std_h4_tp2, i_std_h4_sl, i_leverage)
+    last_std_h4_bar := bar_index
+
+// ── EMA610 H1 ──
+if sig_e610_h1_buy and array.get(p_side, 4) == 0 and f_sl_ok(4)
+    f_open(4, true, i_e610_h1_tp1, i_e610_h1_tp2, i_e610_h1_sl, i_leverage)
+    last_e610_h1_bar := bar_index
+    e610_h1_cd := 0
+if sig_e610_h1_sell and array.get(p_side, 4) == 0 and f_sl_ok(4)
+    f_open(4, false, i_e610_h1_tp1, i_e610_h1_tp2, i_e610_h1_sl, i_leverage)
+    last_e610_h1_bar := bar_index
+    e610_h1_cd := 0
+
+// ── EMA610 H4 ──
+if sig_e610_h4_buy and array.get(p_side, 5) == 0 and f_sl_ok(5)
+    f_open(5, true, i_e610_h4_tp1, i_e610_h4_tp2, i_e610_h4_sl, i_leverage)
+    last_e610_h4_bar := bar_index
+    e610_h4_cd := 0
+if sig_e610_h4_sell and array.get(p_side, 5) == 0 and f_sl_ok(5)
+    f_open(5, false, i_e610_h4_tp1, i_e610_h4_tp2, i_e610_h4_sl, i_leverage)
+    last_e610_h4_bar := bar_index
+    e610_h4_cd := 0
+
+// ── RSI Div M15 ──
+div_lev = math.min(math.ceil(i_leverage * i_div_lev), 125)
+if sig_div_m15_buy and array.get(p_side, 6) == 0 and f_sl_ok(6)
+    f_close_std_ema(true)
+    f_open(6, true, i_div_m15_tp1, i_div_m15_tp2, i_div_m15_sl, div_lev)
+    last_div_m15_bar := bar_index
+    div_ema_block := -1  // Block SELL EMA entries
+if sig_div_m15_sell and array.get(p_side, 6) == 0 and f_sl_ok(6)
+    f_close_std_ema(false)
+    f_open(6, false, i_div_m15_tp1, i_div_m15_tp2, i_div_m15_sl, div_lev)
+    last_div_m15_bar := bar_index
+    div_ema_block := 1  // Block BUY EMA entries
+
+// ── RSI Div H1 ──
+if sig_div_h1_buy and array.get(p_side, 7) == 0 and f_sl_ok(7)
+    f_close_std_ema(true)
+    f_open(7, true, i_div_h1_tp1, i_div_h1_tp2, i_div_h1_sl, div_lev)
+    last_div_h1_bar := bar_index
+if sig_div_h1_sell and array.get(p_side, 7) == 0 and f_sl_ok(7)
+    f_close_std_ema(false)
+    f_open(7, false, i_div_h1_tp1, i_div_h1_tp2, i_div_h1_sl, div_lev)
+    last_div_h1_bar := bar_index
+
+// ── RSI Div H4 ──
+if sig_div_h4_buy and array.get(p_side, 8) == 0 and f_sl_ok(8)
+    f_close_std_ema(true)
+    f_open(8, true, i_div_h4_tp1, i_div_h4_tp2, i_div_h4_sl, div_lev)
+    last_div_h4_bar := bar_index
+if sig_div_h4_sell and array.get(p_side, 8) == 0 and f_sl_ok(8)
+    f_close_std_ema(false)
+    f_open(8, false, i_div_h4_tp1, i_div_h4_tp2, i_div_h4_sl, div_lev)
+    last_div_h4_bar := bar_index
+
+// ── SD Zone M15 ──
+if sig_sd_m15_buy and array.get(p_side, 9) == 0 and f_sl_ok(9)
+    f_open(9, true, i_sd_m15_tp1, i_sd_m15_tp2, i_sd_m15_sl, i_leverage)
+    last_sd_m15_bar := bar_index
+if sig_sd_m15_sell and array.get(p_side, 9) == 0 and f_sl_ok(9)
+    f_open(9, false, i_sd_m15_tp1, i_sd_m15_tp2, i_sd_m15_sl, i_leverage)
+    last_sd_m15_bar := bar_index
+
+// ── SD Zone H1 ──
+if sig_sd_h1_buy and array.get(p_side, 10) == 0 and f_sl_ok(10)
+    f_open(10, true, i_sd_h1_tp1, i_sd_h1_tp2, i_sd_h1_sl, i_leverage)
+    last_sd_h1_bar := bar_index
+if sig_sd_h1_sell and array.get(p_side, 10) == 0 and f_sl_ok(10)
+    f_open(10, false, i_sd_h1_tp1, i_sd_h1_tp2, i_sd_h1_sl, i_leverage)
+    last_sd_h1_bar := bar_index
+
+// ── SD Zone H4 ──
+if sig_sd_h4_buy and array.get(p_side, 11) == 0 and f_sl_ok(11)
+    f_open(11, true, i_sd_h4_tp1, i_sd_h4_tp2, i_sd_h4_sl, i_leverage)
+    last_sd_h4_bar := bar_index
+if sig_sd_h4_sell and array.get(p_side, 11) == 0 and f_sl_ok(11)
+    f_open(11, false, i_sd_h4_tp1, i_sd_h4_tp2, i_sd_h4_sl, i_leverage)
+    last_sd_h4_bar := bar_index
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECTION 11: VISUALS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Sonic R style EMA lines ──
+// PAC Channel: EMA34 of high/low/close
+_pac_h   = ta.ema(high, 34)
+_pac_l   = ta.ema(low, 34)
+_pac_c   = ta.ema(close, 34)
+_ema89   = ta.ema(close, 89)
+_ema200  = ta.ema(close, 200)
+_ema610  = ta.ema(close, 610)
+plot(i_show_pac_l  ? _pac_l  : na, "PAC Low",   i_col_pac, 1)
+plot(i_show_pac_h  ? _pac_h  : na, "PAC High",  i_col_pac, 1)
+plot(i_show_pac_c  ? _pac_c  : na, "PAC Close", i_col_pac, 2)
+plot(i_show_ema89  ? _ema89  : na, "EMA89",  i_col_ema89,  4)
+plot(i_show_ema200 ? _ema200 : na, "EMA200", i_col_ema200, 1)
+plot(i_show_ema610 ? _ema610 : na, "EMA610", i_col_ema610, 1)
+
+// ── Chandelier Exit visual (matches TradingView CE indicator with ratcheting) ──
+_ce_atr = i_ce_mult * ta.atr(i_ce_period)
+_ce_longStop = ta.highest(close, i_ce_period) - _ce_atr
+_ce_longStopPrev = nz(_ce_longStop[1], _ce_longStop)
+_ce_longStop := close[1] > _ce_longStopPrev ? math.max(_ce_longStop, _ce_longStopPrev) : _ce_longStop
+_ce_shortStop = ta.lowest(close, i_ce_period) + _ce_atr
+_ce_shortStopPrev = nz(_ce_shortStop[1], _ce_shortStop)
+_ce_shortStop := close[1] < _ce_shortStopPrev ? math.min(_ce_shortStop, _ce_shortStopPrev) : _ce_shortStop
+var int _ce_dir = 1
+_ce_dir := close > _ce_shortStopPrev ? 1 : close < _ce_longStopPrev ? -1 : _ce_dir
+_ce_longPlot  = plot(i_show_ce and _ce_dir == 1 ? _ce_longStop : na, "CE Long", color.green, 2, plot.style_linebr)
+_ce_shortPlot = plot(i_show_ce and _ce_dir == -1 ? _ce_shortStop : na, "CE Short", color.red, 2, plot.style_linebr)
+_ce_midPlot   = plot(ohlc4, "", display=display.none, editable=false)
+fill(_ce_midPlot, _ce_longPlot, color=i_show_ce and _ce_dir == 1 ? color.new(color.green, 85) : na, title="CE Long Fill")
+fill(_ce_midPlot, _ce_shortPlot, color=i_show_ce and _ce_dir == -1 ? color.new(color.red, 85) : na, title="CE Short Fill")
+
+// ── Signal shapes (auto-TF filter + per-category toggles) ──
+// Auto-filter: on H1 chart hide M5/M15, on M15 hide M5, etc.
+_tf_min  = timeframe.in_seconds()
+_ok_m5   = not i_tf_auto or _tf_min <= 300      // show M5 only on ≤M5 chart
+_ok_m15  = not i_tf_auto or _tf_min <= 900      // show M15 only on ≤M15 chart
+_ok_h1   = true                                  // always show H1
+_ok_h4   = true                                  // always show H4
+
+// Standard — 🏷 labels (size scales with TF)
+plotshape(i_show_labels and i_show_std and _ok_m5  and m5_entered_buy,   "STD M5 BUY",   shape.labelup,   location.belowbar, i_col_std_m5,  size=size.auto, text="M5", textcolor=color.white)
+plotshape(i_show_labels and i_show_std and _ok_m5  and m5_entered_sell,  "STD M5 SELL",  shape.labeldown, location.abovebar, i_col_std_m5,  size=size.auto, text="M5", textcolor=color.white)
+plotshape(i_show_labels and i_show_std and _ok_m15 and sig_std_m15_buy,  "STD M15 BUY",  shape.labelup,   location.belowbar, i_col_std_m15, size=size.tiny, text="M15", textcolor=color.white)
+plotshape(i_show_labels and i_show_std and _ok_m15 and sig_std_m15_sell, "STD M15 SELL", shape.labeldown, location.abovebar, i_col_std_m15, size=size.tiny, text="M15", textcolor=color.white)
+plotshape(i_show_labels and i_show_std and _ok_h1  and sig_std_h1_buy,   "STD H1 BUY",   shape.labelup,   location.belowbar, i_col_std_h1,  size=size.small, text="H1", textcolor=color.white)
+plotshape(i_show_labels and i_show_std and _ok_h1  and sig_std_h1_sell,  "STD H1 SELL",  shape.labeldown, location.abovebar, i_col_std_h1,  size=size.small, text="H1", textcolor=color.white)
+plotshape(i_show_labels and i_show_std and _ok_h4  and sig_std_h4_buy,   "STD H4 BUY",   shape.labelup,   location.belowbar, i_col_std_h4,  size=size.normal, text="H4", textcolor=color.white)
+plotshape(i_show_labels and i_show_std and _ok_h4  and sig_std_h4_sell,  "STD H4 SELL",  shape.labeldown, location.abovebar, i_col_std_h4,  size=size.normal, text="H4", textcolor=color.white)
+
+// EMA610 — 🏷 labels (show text inside)
+plotshape(i_show_labels and i_show_e610 and _ok_h1 and sig_e610_h1_buy,  "E610 H1 BUY",  shape.labelup,   location.belowbar, i_col_e610_h1, size=size.small, text="E1", textcolor=color.white)
+plotshape(i_show_labels and i_show_e610 and _ok_h1 and sig_e610_h1_sell, "E610 H1 SELL", shape.labeldown, location.abovebar, i_col_e610_h1, size=size.small, text="E1", textcolor=color.white)
+plotshape(i_show_labels and i_show_e610 and _ok_h4 and sig_e610_h4_buy,  "E610 H4 BUY",  shape.labelup,   location.belowbar, i_col_e610_h4, size=size.normal, text="E4", textcolor=color.white)
+plotshape(i_show_labels and i_show_e610 and _ok_h4 and sig_e610_h4_sell, "E610 H4 SELL", shape.labeldown, location.abovebar, i_col_e610_h4, size=size.normal, text="E4", textcolor=color.white)
+
+// RSI Div — labels
+plotshape(i_show_labels and i_show_div and _ok_m15 and sig_div_m15_buy,  "DIV M15 BUY",  shape.labelup,   location.belowbar, i_col_div_m15, size=size.tiny, text="D15", textcolor=color.white)
+plotshape(i_show_labels and i_show_div and _ok_m15 and sig_div_m15_sell, "DIV M15 SELL", shape.labeldown, location.abovebar, i_col_div_m15, size=size.tiny, text="D15", textcolor=color.white)
+plotshape(i_show_labels and i_show_div and _ok_h1  and sig_div_h1_buy,   "DIV H1 BUY",   shape.labelup,   location.belowbar, i_col_div_h1,  size=size.small, text="D1", textcolor=color.white)
+plotshape(i_show_labels and i_show_div and _ok_h1  and sig_div_h1_sell,  "DIV H1 SELL",  shape.labeldown, location.abovebar, i_col_div_h1,  size=size.small, text="D1", textcolor=color.white)
+plotshape(i_show_labels and i_show_div and _ok_h4  and sig_div_h4_buy,   "DIV H4 BUY",   shape.labelup,   location.belowbar, i_col_div_h4,  size=size.normal, text="D4", textcolor=color.white)
+plotshape(i_show_labels and i_show_div and _ok_h4  and sig_div_h4_sell,  "DIV H4 SELL",  shape.labeldown, location.abovebar, i_col_div_h4,  size=size.normal, text="D4", textcolor=color.white)
+
+// SD Zone — dynamic labels (label.new doesn't count toward 64-plot limit)
+// Demand (BUY) = DM, Supply (SELL) = SP
+if i_show_labels and i_show_sd and _ok_m15 and sig_sd_m15_buy
+    label.new(bar_index, low, "DM15", style=label.style_label_up, color=i_col_sd_m15, textcolor=color.white, size=size.tiny)
+if i_show_labels and i_show_sd and _ok_m15 and sig_sd_m15_sell
+    label.new(bar_index, high, "SP15", style=label.style_label_down, color=i_col_sd_m15, textcolor=color.white, size=size.tiny)
+if i_show_labels and i_show_sd and _ok_h1 and sig_sd_h1_buy
+    label.new(bar_index, low, "DM1", style=label.style_label_up, color=i_col_sd_h1, textcolor=color.white, size=size.small)
+if i_show_labels and i_show_sd and _ok_h1 and sig_sd_h1_sell
+    label.new(bar_index, high, "SP1", style=label.style_label_down, color=i_col_sd_h1, textcolor=color.white, size=size.small)
+if i_show_labels and i_show_sd and _ok_h4 and sig_sd_h4_buy
+    label.new(bar_index, low, "DM4", style=label.style_label_up, color=i_col_sd_h4, textcolor=color.white, size=size.normal)
+if i_show_labels and i_show_sd and _ok_h4 and sig_sd_h4_sell
+    label.new(bar_index, high, "SP4", style=label.style_label_down, color=i_col_sd_h4, textcolor=color.white, size=size.normal)
+
+// ── Div EMA Block background ──
+bgcolor(div_ema_block == 1 ? color.new(color.red, 95) : div_ema_block == -1 ? color.new(color.green, 95) : na, title="Div Block")
+
+// ── Info table (bottom-right) ──
+// 3 columns: Label | Value | Status  —  rows: 4 general + 1 separator + 12 entries = 17
+var table info = table.new(position.bottom_right, 3, 17, color.new(chart.bg_color, 10), border_width=1)
+if barstate.islast
+    active = 0
+    for i = 0 to 11
+        if array.get(p_side, i) != 0
+            active += 1
+
+    // ── General info (rows 0-3) ──
+    table.cell(info, 0, 0, "Leverage", text_color=chart.fg_color, text_size=size.small)
+    table.cell(info, 1, 0, str.tostring(i_leverage) + "x", text_color=chart.fg_color, text_size=size.small)
+    table.cell(info, 2, 0, "", text_size=size.small)
+
+    table.cell(info, 0, 1, "Active Pos", text_color=chart.fg_color, text_size=size.small)
+    table.cell(info, 1, 1, str.tostring(active), text_color=active > 0 ? color.green : chart.fg_color, text_size=size.small)
+    table.cell(info, 2, 1, "", text_size=size.small)
+
+    table.cell(info, 0, 2, "ADX H1", text_color=chart.fg_color, text_size=size.small)
+    table.cell(info, 1, 2, str.tostring(h1_adx, "#.#"), text_color=h1_adx >= i_adx_min ? color.green : color.red, text_size=size.small)
+    table.cell(info, 2, 2, h1_adx >= i_adx_min ? "OK" : "WEAK", text_color=h1_adx >= i_adx_min ? color.green : color.red, text_size=size.small)
+
+    table.cell(info, 0, 3, "H4 Trend", text_color=chart.fg_color, text_size=size.small)
+    table.cell(info, 1, 3, h4_buy_trend ? "BUY" : h4_sell_trend ? "SELL" : "FLAT", text_color=h4_buy_trend ? color.green : h4_sell_trend ? color.red : color.gray, text_size=size.small)
+    table.cell(info, 2, 3, "", text_size=size.small)
+
+    // Separator row
+    table.cell(info, 0, 4, "Entry Type", text_color=color.gray, text_size=size.small)
+    table.cell(info, 1, 4, "Side", text_color=color.gray, text_size=size.small)
+    table.cell(info, 2, 4, "TP1", text_color=color.gray, text_size=size.small)
+
+    // Entry type rows (rows 5-16)
+    SLOT_NAMES  = array.from("STD M5", "STD M15", "STD H1", "STD H4", "E610 H1", "E610 H4", "DIV M15", "DIV H1", "DIV H4", "SD M15", "SD H1", "SD H4")
+    SLOT_COLORS = array.from(i_col_std_m5, i_col_std_m15, i_col_std_h1, i_col_std_h4, i_col_e610_h1, i_col_e610_h4, i_col_div_m15, i_col_div_h1, i_col_div_h4, i_col_sd_m15, i_col_sd_h1, i_col_sd_h4)
+
+    for i = 0 to 11
+        row = i + 5
+        s    = array.get(p_side, i)
+        tp1  = array.get(p_tp1, i)
+        col  = array.get(SLOT_COLORS, i)
+        name = array.get(SLOT_NAMES, i)
+
+        // Col 0: Entry type name with its color
+        table.cell(info, 0, row, name, text_color=col, text_size=size.small)
+
+        // Col 1: Side (LONG/SHORT/flat)
+        side_txt = s == 1 ? "LONG" : s == -1 ? "SHORT" : "-"
+        side_col = s == 1 ? color.green : s == -1 ? color.red : color.gray
+        table.cell(info, 1, row, side_txt, text_color=side_col, text_size=size.small)
+
+        // Col 2: TP1 status
+        tp_txt = s == 0 ? "" : tp1 ? "HIT" : "..."
+        tp_col = tp1 ? color.green : color.gray
+        table.cell(info, 2, row, tp_txt, text_color=tp_col, text_size=size.small)
+
+
+// ══════════════════════════════════════════════════════════════════════════════

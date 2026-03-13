@@ -1,0 +1,43 @@
+# Core dependencies
+ccxt>=4.0.0
+pandas>=2.0.0
+python-dotenv>=1.0.0
+
+# Linear API
+requests>=2.31.0
+
+# Web Dashboard
+flask>=3.0.0
+fastapi>=0.100.0
+uvicorn>=0.20.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Code quality
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.5.0
+
+# RAG & Knowledge System
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+pyyaml>=6.0.0  # Pre-flight Check operation registry
+
+# Database (PostgreSQL) + Redis
+sqlalchemy>=2.0.0
+alembic>=1.12.0
+psycopg2-binary>=2.9.0
+redis>=5.0.0
+cryptography>=41.0.0  # API key encryption (Fernet)
+
+# Billing (Stripe)
+stripe>=8.0.0
+
+# Monitoring (optional — Sentry)
+sentry-sdk[fastapi]>=2.0.0
+
+# Futures Trading Bot
+websockets>=12.0  # Real-time price updates
+numpy>=1.24.0     # Numerical calculations
