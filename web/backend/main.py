@@ -203,7 +203,7 @@ _bills_summary_cache: dict = {}  # {days: summary}
 _bills_summary_ts: dict = {}    # {days: timestamp} — per-key, NOT shared
 BILLS_SUMMARY_TTL = 60.0  # 1 min — keep data fresh
 
-INITIAL_DEPOSIT = 300.0  # Initial deposit for growth % calculation
+INITIAL_DEPOSIT = float(os.environ.get("INITIAL_DEPOSIT", "300.0"))  # Initial deposit for growth %
 
 
 def _filter_history_by_period(history: list[dict], period: str) -> list[dict]:
@@ -305,12 +305,12 @@ def _fetch_bills_summary(days: int) -> dict:
 
 # Backfill cutoff: exclude positions.json trades closed on or before this time
 # (early trades had wrong position sizes, causing incorrect PNL)
-BACKFILL_CUTOFF = "2026-02-17T15:10:00"
+BACKFILL_CUTOFF = os.environ.get("BACKFILL_CUTOFF", "")  # Ignore OKX history before this date
 
 # Performance Analysis reset: only show trades closed AFTER this date in the
 # analysis breakdown (By Strategy/Exit/Symbol). Does NOT affect Total PNL,
 # win rate, trade count, or history — those always use all trades.
-ANALYSIS_RESET_DATE = "2026-02-25T00:00:00"
+ANALYSIS_RESET_DATE = os.environ.get("ANALYSIS_RESET_DATE", "")
 
 
 def _merge_history(fresh: list[dict], cached: list[dict]) -> list[dict]:

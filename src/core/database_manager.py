@@ -1,5 +1,5 @@
 """
-Database Manager for My-Life-OS V3
+Database Manager
 
 Handles all database operations with SQLAlchemy ORM.
 Supports SQLite (local) and PostgreSQL (production).

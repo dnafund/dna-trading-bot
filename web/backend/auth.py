@@ -38,10 +38,7 @@ class TokenPayload:
 SECRET_KEY = os.environ.get("JWT_SECRET", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24
-GOOGLE_CLIENT_ID = os.environ.get(
-    "GOOGLE_CLIENT_ID",
-    "510555117830-4ah5d17iqnnhqjk1qm5o35svsake7fv5.apps.googleusercontent.com",
-)
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
 # ── Password Hashing ────────────────────────────────────────────
 

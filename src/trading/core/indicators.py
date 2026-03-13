@@ -1326,3 +1326,53 @@ class RSIDivergence:
                 # if curr_price > prev_price and curr_rsi < prev_rsi:
 
         return no_divergence
+
+    @staticmethod
+    def check_wick_rejection(
+        df: pd.DataFrame,
+        side: str,
+        min_ratio: float = 0.5,
+        min_candles: int = 2,
+        lookback: int = 4
+    ) -> bool:
+        """Check if recent candles show wick rejection confirming divergence.
+
+        For BUY (bullish div): lower wicks show buying rejection.
+        For SELL (bearish div): upper wicks show selling rejection.
+
+        Args:
+            df: OHLCV DataFrame
+            side: "BUY" or "SELL"
+            min_ratio: Minimum wick/range ratio (0.5 = 50%)
+            min_candles: Minimum candles with rejection (2 of 4)
+            lookback: Number of recent candles to check
+
+        Returns:
+            True if at least min_candles have rejection wicks >= min_ratio
+        """
+        if len(df) < lookback:
+            return True  # Not enough data, don't block
+
+        recent = df.tail(lookback)
+        rejection_count = 0
+
+        for _, candle in recent.iterrows():
+            o = float(candle['open'])
+            h = float(candle['high'])
+            l = float(candle['low'])
+            c = float(candle['close'])
+            candle_range = h - l
+            if candle_range <= 0:
+                continue
+
+            if side == "BUY":
+                # Bullish: lower wick = rejection of lower prices
+                wick = min(o, c) - l
+            else:
+                # Bearish: upper wick = rejection of higher prices
+                wick = h - max(o, c)
+
+            if wick / candle_range >= min_ratio:
+                rejection_count += 1
+
+        return rejection_count >= min_candles
