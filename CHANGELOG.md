@@ -1509,7 +1509,7 @@ Created comprehensive START.md file (18KB, ~700 lines) to provide complete conte
 1. **System Overview** (50 lines)
    - What is My-Life-OS
    - Key projects (My-Life-OS + quant-factory)
-   - Team structure (datthieu, Antigravity, Claude)
+   - Team structure (admin, Antigravity, Claude)
    - Current focus (Trading signal automation)
 
 2. **PRIME DIRECTIVES** (100 lines)
@@ -1623,7 +1623,7 @@ Claude: "Đã đọc xong START.md. Bạn muốn làm gì tiếp?"
 
 #### Benefits
 
-**For Orchestrator (datthieu):**
+**For Orchestrator (admin):**
 - ✅ New sessions productive immediately
 - ✅ No need to explain system repeatedly
 - ✅ Consistent context across sessions

@@ -3,16 +3,13 @@ Database Manager
 
 Handles all database operations with SQLAlchemy ORM.
 Supports SQLite (local) and PostgreSQL (production).
-
-Author: datthieu + Claude
-Date: 2026-01-27
 """
 
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, DateTime,
     Boolean, JSON, Text, Index, func
 )
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional

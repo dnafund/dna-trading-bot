@@ -16,16 +16,14 @@ sqlalchemy>=2.0.0
 alembic>=1.12.0
 cryptography>=41.0.0  # API key encryption (Fernet)
 
+# Services
+redis>=5.0.0      # Pub/sub for multi-process communication
+stripe>=8.0.0     # Billing integration
+
 # Optional: PostgreSQL (default: SQLite)
 # psycopg2-binary>=2.9.0
 
-# Optional: Redis pub/sub
-# redis>=5.0.0
-
-# Optional: Billing (Stripe)
-# stripe>=8.0.0
-
-# Optional: Monitoring (Sentry)
+# Optional: Monitoring
 # sentry-sdk[fastapi]>=2.0.0
 
 # Testing

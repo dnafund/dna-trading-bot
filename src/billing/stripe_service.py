@@ -14,7 +14,7 @@ Environment variables required:
     STRIPE_WEBHOOK_SECRET  — Webhook signing secret
     STRIPE_PRICE_BASIC     — Stripe Price ID for Basic tier
     STRIPE_PRICE_PRO       — Stripe Price ID for Pro tier
-    DASHBOARD_URL          — Frontend URL for redirects (e.g., https://dnatradingbot.com)
+    DASHBOARD_URL          — Frontend URL for redirects (e.g., https://yourdomain.com)
 """
 
 import logging

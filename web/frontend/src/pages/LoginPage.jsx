@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Activity, Loader2 } from 'lucide-react'
 
-const GOOGLE_CLIENT_ID = '510555117830-4ah5d17iqnnhqjk1qm5o35svsake7fv5.apps.googleusercontent.com'
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 
 export default function LoginPage({ onLoginWithGoogle, loading, error }) {
   const googleBtnRef = useRef(null)
