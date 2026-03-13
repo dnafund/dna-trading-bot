@@ -31,15 +31,20 @@ DATABASE_URL = os.getenv(
     "sqlite:///data/app.db",
 )
 
-# Connection pool: 5 persistent + 10 overflow for burst traffic
-engine = create_engine(
-    DATABASE_URL,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    echo=False,
-)
+# Build engine with appropriate settings per database type
+_engine_kwargs = {"echo": False}
+if DATABASE_URL.startswith("sqlite"):
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # PostgreSQL pool settings
+    _engine_kwargs.update(
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+    )
+
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 SessionFactory = sessionmaker(bind=engine, expire_on_commit=False)
 
