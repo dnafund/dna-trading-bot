@@ -147,6 +147,9 @@ Configurable in `src/trading/core/config.py`:
 | RSI Div | M15 | 15% | 30% | 15% | 70% |
 | RSI Div | H1 | 25% | 50% | 20% | 70% |
 | RSI Div | H4 | 40% | 80% | 30% | 70% |
+| SD Zone | M15 | 15% | 30% | 15% | 70% |
+| SD Zone | H1 | 25% | 50% | 20% | 70% |
+| SD Zone | H4 | 40% | 80% | 30% | 70% |
 
 All values are ROI-based (percentage of margin).
 
